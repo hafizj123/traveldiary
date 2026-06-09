@@ -8,6 +8,21 @@
   }
 }
 
+@supports (-webkit-touch-callout: none) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  .date-input-safari {
+    min-height: 42px;
+    line-height: 1.25;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+}
+
 /* Leaflet fix inside flex containers */
 .leaflet-container {
   width: 100%;
