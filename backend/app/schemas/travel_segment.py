@@ -1,0 +1,27 @@
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+
+class TravelSegmentCreate(BaseModel):
+    from_point_id: int
+    to_point_id: int
+    travel_method: str
+    description: Optional[str] = None
+
+
+class TravelSegmentUpdate(BaseModel):
+    travel_method: Optional[str] = None
+    description: Optional[str] = None
+
+
+class TravelSegmentResponse(BaseModel):
+    id: int
+    trip_id: int
+    from_point_id: int
+    to_point_id: int
+    travel_method: str
+    description: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

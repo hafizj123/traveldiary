@@ -1,0 +1,15 @@
+fastapi>=0.111.0
+uvicorn>=0.29.0
+sqlalchemy>=2.0.30
+pymysql>=1.1.1
+cryptography>=42.0.8
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1
+python-multipart>=0.0.9
+Pillow>=10.3.0
+boto3>=1.34.100
+httpx>=0.27.0
+python-dotenv>=1.0.1
+pydantic-settings>=2.2.1
+email-validator>=2.1.1
