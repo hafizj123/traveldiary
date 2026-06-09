@@ -1,185 +1,243 @@
 """
-Shared train-route logic: Overpass fetch + A* pathfinding + DB cache.
+Shared train-route logic: Google Routes API transit fetch + DB cache.
 Used by both the /routes/train endpoint and the segment creation hook.
 """
+from __future__ import annotations
+
 import json
-import heapq
 import logging
+from datetime import datetime, time, timedelta, timezone
+from typing import Optional
+
 import httpx
-from typing import Optional, List
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..models.route_cache import RouteCache
 
 logger = logging.getLogger(__name__)
 
-
-# ─── Cache key ────────────────────────────────────────────────────────────────
-def make_cache_key(lat1: float, lon1: float, lat2: float, lon2: float) -> str:
-    """Round to 3 dp (~110 m) so nearby identical journeys share an entry."""
-    return f"{lat1:.3f},{lon1:.3f}|{lat2:.3f},{lon2:.3f}"
-
-
-# ─── A* helpers ───────────────────────────────────────────────────────────────
-def _euclid(a: tuple, b: tuple) -> float:
-    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+GOOGLE_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+GOOGLE_FIELD_MASK = ",".join([
+    "routes.polyline.encodedPolyline",
+    "routes.legs.steps.polyline.encodedPolyline",
+])
+CACHE_PREFIX = "google_transit_train"
 
 
-def _a_star(
-    nodes: dict,
-    adj:   dict,
-    start_id: str,
-    goal_id: str,
-    goal_pos: tuple,
-) -> Optional[List[str]]:
-    g_score   = {start_id: 0.0}
-    open_heap = [(_euclid(nodes[start_id], goal_pos), start_id)]
-    came_from: dict[str, str] = {}
-    visited:   set[str] = set()
-    iterations = 0
-
-    while open_heap and iterations < 80_000:
-        iterations += 1
-        _, cur = heapq.heappop(open_heap)
-        if cur in visited:
-            continue
-        visited.add(cur)
-        if cur == goal_id:
-            path: list[str] = []
-            while cur in came_from:
-                path.append(cur)
-                cur = came_from[cur]
-            path.append(start_id)
-            path.reverse()
-            return path
-        for nb, d in adj.get(cur, []):
-            if nb in visited:
-                continue
-            tentative = g_score[cur] + d
-            if tentative < g_score.get(nb, float("inf")):
-                came_from[nb] = cur
-                g_score[nb]   = tentative
-                f = tentative + _euclid(nodes[nb], goal_pos)
-                heapq.heappush(open_heap, (f, nb))
-    return None
+def make_cache_key(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> str:
+    """Round to 5 dp so identical geometry lookups share one cached entry."""
+    return f"{CACHE_PREFIX}|{lat1:.5f},{lon1:.5f}|{lat2:.5f},{lon2:.5f}"
 
 
-# ─── Overpass fetch + graph ───────────────────────────────────────────────────
-async def _fetch_from_overpass(
-    lat1: float, lon1: float, lat2: float, lon2: float
-) -> Optional[list]:
-    lat_diff = abs(lat2 - lat1)
-    lon_diff = abs(lon2 - lon1)
-    # Bbox too large → Overpass would time out / return too much data
-    if lat_diff > 8 or lon_diff > 12:
-        logger.info("train_route: bbox too large, skipping Overpass")
+def _approximate_timezone_offset_hours(lon: float) -> int:
+    """
+    Approximate local timezone from longitude when no timezone dataset is available.
+    This keeps schedule-based transit lookups much closer to local morning service.
+    """
+    return max(-12, min(14, round(lon / 15)))
+
+
+def _departure_time_utc(origin_lon: float) -> str:
+    offset_hours = _approximate_timezone_offset_hours(origin_lon)
+    local_tz = timezone(timedelta(hours=offset_hours))
+    local_now = datetime.now(timezone.utc).astimezone(local_tz)
+    local_date = local_now.date() + timedelta(days=1)
+    local_dt = datetime.combine(local_date, time(hour=8, minute=0), tzinfo=local_tz)
+    return local_dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _decode_polyline(encoded: str) -> list[list[float]]:
+    """Decode a Google encoded polyline into [lat, lon] pairs."""
+    points: list[list[float]] = []
+    index = 0
+    lat = 0
+    lon = 0
+
+    while index < len(encoded):
+        shift = 0
+        result = 0
+        while True:
+            b = ord(encoded[index]) - 63
+            index += 1
+            result |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        dlat = ~(result >> 1) if (result & 1) else (result >> 1)
+        lat += dlat
+
+        shift = 0
+        result = 0
+        while True:
+            b = ord(encoded[index]) - 63
+            index += 1
+            result |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        dlng = ~(result >> 1) if (result & 1) else (result >> 1)
+        lon += dlng
+
+        points.append([lat / 1e5, lon / 1e5])
+
+    return points
+
+
+def _dedupe_points(points: list[list[float]]) -> list[list[float]]:
+    deduped: list[list[float]] = []
+    for lat, lon in points:
+        if not deduped or deduped[-1][0] != lat or deduped[-1][1] != lon:
+            deduped.append([lat, lon])
+    return deduped
+
+
+def _extract_geometry(data: dict) -> Optional[list[list[float]]]:
+    routes = data.get("routes") or []
+    if not routes:
         return None
 
-    margin = max(lat_diff, lon_diff) * 0.2 + 0.4
-    south = round(min(lat1, lat2) - margin, 4)
-    north = round(max(lat1, lat2) + margin, 4)
-    west  = round(min(lon1, lon2) - margin, 4)
-    east  = round(max(lon1, lon2) + margin, 4)
+    route = routes[0]
+    encoded = ((route.get("polyline") or {}).get("encodedPolyline"))
+    if encoded:
+        return _dedupe_points(_decode_polyline(encoded))
 
-    query = (
-        f'[out:json][timeout:30];'
-        f'way["railway"~"^(rail|light_rail|narrow_gauge)$"]'
-        f'["service"!~"^(siding|yard|crossover|spur)$"]'
-        f'({south},{west},{north},{east});out geom;'
-    )
+    points: list[list[float]] = []
+    for leg in route.get("legs") or []:
+        for step in leg.get("steps") or []:
+            step_encoded = ((step.get("polyline") or {}).get("encodedPolyline"))
+            if step_encoded:
+                points.extend(_decode_polyline(step_encoded))
+
+    return _dedupe_points(points) if points else None
+
+
+async def _fetch_from_google_routes(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> Optional[list[list[float]]]:
+    api_key = settings.GOOGLE_MAPS_API_KEY.strip()
+    if not api_key:
+        logger.warning("train_route: GOOGLE_MAPS_API_KEY is not configured")
+        return None
+
+    body = {
+        "origin": {
+            "location": {
+                "latLng": {"latitude": lat1, "longitude": lon1}
+            }
+        },
+        "destination": {
+            "location": {
+                "latLng": {"latitude": lat2, "longitude": lon2}
+            }
+        },
+        "travelMode": "TRANSIT",
+        "computeAlternativeRoutes": False,
+        "transitPreferences": {
+            "allowedTravelModes": ["TRAIN", "LIGHT_RAIL", "RAIL", "SUBWAY", "BUS"],
+            "routingPreference": "FEWER_TRANSFERS",
+        },
+        "languageCode": "en",
+        "units": "METRIC",
+    }
+    body["departureTime"] = _departure_time_utc(lon1)
 
     try:
-        async with httpx.AsyncClient(timeout=35.0) as client:
-            resp = await client.get(
-                "https://overpass-api.de/api/interpreter",
-                params={"data": query},
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                GOOGLE_ROUTES_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": api_key,
+                    "X-Goog-FieldMask": GOOGLE_FIELD_MASK,
+                },
+                json=body,
             )
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:
-        logger.warning("train_route: Overpass request failed: %s", exc)
+        logger.warning("train_route: Google Routes request failed: %s", exc)
         return None
 
-    elements = data.get("elements", [])
-    if not elements:
-        logger.info("train_route: Overpass returned no railway ways in bbox")
+    geometry = _extract_geometry(data)
+    if not geometry:
+        logger.info("train_route: Google Routes returned no usable transit geometry")
         return None
-
-    nodes: dict[str, tuple] = {}
-    adj:   dict[str, list]  = {}
-
-    for way in elements:
-        geom = way.get("geometry") or []
-        if len(geom) < 2:
-            continue
-        for i, pt in enumerate(geom):
-            nid = f"{pt['lat']:.5f},{pt['lon']:.5f}"
-            nodes.setdefault(nid, (pt["lat"], pt["lon"]))
-            adj.setdefault(nid, [])
-            if i > 0:
-                prev = geom[i - 1]
-                pid  = f"{prev['lat']:.5f},{prev['lon']:.5f}"
-                adj.setdefault(pid, [])
-                d = _euclid(nodes[nid], (prev["lat"], prev["lon"]))
-                adj[nid].append((pid, d))
-                adj[pid].append((nid, d))
-
-    if not nodes:
-        return None
-
-    start_id = min(nodes, key=lambda nid: _euclid(nodes[nid], (lat1, lon1)))
-    goal_id  = min(nodes, key=lambda nid: _euclid(nodes[nid], (lat2, lon2)))
-    if start_id == goal_id:
-        return None
-
-    path = _a_star(nodes, adj, start_id, goal_id, (lat2, lon2))
-    if not path:
-        logger.info("train_route: A* found no path between the two nearest rail nodes")
-        return None
-
-    return (
-        [[lat1, lon1]]
-        + [[nodes[nid][0], nodes[nid][1]] for nid in path]
-        + [[lat2, lon2]]
-    )
+    return geometry
 
 
-# ─── Public API ───────────────────────────────────────────────────────────────
 def get_cached_geometry(db: Session, key: str) -> Optional[list]:
     row = db.query(RouteCache).filter(RouteCache.cache_key == key).first()
-    if row:
-        return json.loads(row.geometry_json)
-    return None
+    if row is None:
+        return None
+    return json.loads(row.geometry_json)
 
 
 def save_geometry(db: Session, key: str, geometry: list) -> None:
-    db.add(RouteCache(cache_key=key, geometry_json=json.dumps(geometry)))
+    row = db.query(RouteCache).filter(RouteCache.cache_key == key).first()
+    payload = json.dumps(geometry)
+    if row:
+        row.geometry_json = payload
+    else:
+        db.add(RouteCache(cache_key=key, geometry_json=payload))
     try:
         db.commit()
     except Exception:
         db.rollback()
+        logger.exception("train_route.save_geometry: commit failed key=%s", key)
+
+
+def get_cached_train_geometry(
+    db: Session,
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> Optional[list]:
+    return get_cached_geometry(db, make_cache_key(lat1, lon1, lat2, lon2))
+
+
+def get_train_route_state(
+    db: Session,
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> tuple[Optional[list], str]:
+    cached = get_cached_train_geometry(db, lat1, lon1, lat2, lon2)
+    if cached is None:
+        return None, "pending"
+    if isinstance(cached, list):
+        if cached:
+            return cached, "ready"
+        return None, "unavailable"
+    return None, "pending"
 
 
 async def fetch_and_cache(
-    db: Session, lat1: float, lon1: float, lat2: float, lon2: float
+    db: Session,
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
 ) -> Optional[list]:
     """
-    Check DB cache first. If missing, fetch from Overpass, store result,
-    and return geometry (or None when no railway path is found).
+    Check DB cache first. If missing, fetch from Google Routes, store result,
+    and return geometry (or None when no usable transit path is found).
     """
     key = make_cache_key(lat1, lon1, lat2, lon2)
-
     cached = get_cached_geometry(db, key)
     if cached is not None:
-        return cached
+        return cached or None
 
-    geometry = await _fetch_from_overpass(lat1, lon1, lat2, lon2)
-
-    if geometry:
-        save_geometry(db, key, geometry)
-    else:
-        # Store a sentinel so we don't hammer Overpass repeatedly for the same
-        # route pair that has no rail coverage
-        save_geometry(db, key, [])
-
+    geometry = await _fetch_from_google_routes(lat1, lon1, lat2, lon2)
+    save_geometry(db, key, geometry or [])
     return geometry if geometry else None

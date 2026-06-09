@@ -9,8 +9,37 @@ from ..models.travel_segment import TravelSegment
 from ..schemas.trip import TripResponse
 from ..schemas.timeline_point import TimelinePointResponse
 from ..schemas.travel_segment import TravelSegmentResponse
+from ..services.train_route_service import get_train_route_state
 
 router = APIRouter(prefix="/u", tags=["public"])
+
+
+def _public_segment_response(db: Session, seg: TravelSegment):
+    payload = TravelSegmentResponse.model_validate(seg).model_dump()
+    payload["route_geometry"] = None
+    payload["route_status"] = None
+
+    if seg.travel_method != "train":
+        return payload
+    from_pt = seg.from_point
+    to_pt = seg.to_point
+    if not from_pt or not to_pt:
+        payload["route_status"] = "pending"
+        return payload
+    if not (from_pt.latitude and from_pt.longitude and to_pt.latitude and to_pt.longitude):
+        payload["route_status"] = "pending"
+        return payload
+
+    geometry, status = get_train_route_state(
+        db,
+        from_pt.latitude,
+        from_pt.longitude,
+        to_pt.latitude,
+        to_pt.longitude,
+    )
+    payload["route_geometry"] = geometry
+    payload["route_status"] = status
+    return payload
 
 
 @router.get("/{username}")
@@ -58,5 +87,5 @@ def public_trip(username: str, trip_id: int, db: Session = Depends(get_db)):
         "owner": username,
         "trip": TripResponse.model_validate(trip).model_dump(),
         "points": [TimelinePointResponse.model_validate(p).model_dump() for p in points],
-        "segments": [TravelSegmentResponse.model_validate(s).model_dump() for s in segments],
+        "segments": [_public_segment_response(db, s) for s in segments],
     }

@@ -22,6 +22,8 @@ class TravelSegmentResponse(BaseModel):
     to_point_id: int
     travel_method: str
     description: Optional[str] = None
+    route_geometry: Optional[list[list[float]]] = None
+    route_status: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

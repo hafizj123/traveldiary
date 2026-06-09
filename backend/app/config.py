@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     R2_PUBLIC_URL: str = ""
 
     OWM_API_KEY: str = ""
+    GOOGLE_MAPS_API_KEY: str = ""
 
     DEBUG: bool = True
 

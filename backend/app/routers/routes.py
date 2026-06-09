@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..services.train_route_service import fetch_and_cache
+from ..services.train_route_service import get_train_route_state
 
 router = APIRouter(tags=["routes"])
 
@@ -16,5 +16,5 @@ async def get_train_route(
     lon2: float = Query(...),
     db: Session = Depends(get_db),
 ):
-    geometry = await fetch_and_cache(db, lat1, lon1, lat2, lon2)
-    return {"geometry": geometry}
+    geometry, status = get_train_route_state(db, lat1, lon1, lat2, lon2)
+    return {"geometry": geometry, "status": status}

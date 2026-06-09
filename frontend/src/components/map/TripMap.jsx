@@ -99,172 +99,20 @@ function bezierCurve(lat1, lon1, lat2, lon2, n = 40) {
   return pts
 }
 
-// ─── Train routing — Overpass + Dijkstra (client-side) ───────────────────────
-function _haversineM(lat1, lon1, lat2, lon2) {
-  const R = 6_371_000
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+async function fetchTrainRoute(from, to, seg) {
+  if (Array.isArray(seg?.route_geometry) && seg.route_geometry.length > 1) {
+    return seg.route_geometry
+  }
+  return null
 }
 
-function _nearestNode(nodes, graph, lat, lon) {
-  let bestId = null, bestD = Infinity
-  // Only consider nodes that are actually connected in the graph
-  for (const id of Object.keys(graph)) {
-    const pos = nodes[id]
-    if (!pos) continue
-    const d = _haversineM(lat, lon, pos[0], pos[1])
-    if (d < bestD) { bestD = d; bestId = id }
-  }
-  return bestId
-}
-
-function _dijkstra(graph, start, end) {
-  const dist = {}, prev = {}
-  const queue = [[0, start]]
-  for (const id of Object.keys(graph)) dist[id] = Infinity
-  dist[start] = 0
-  while (queue.length) {
-    queue.sort((a, b) => a[0] - b[0])
-    const [d, cur] = queue.shift()
-    if (cur == end) break
-    if (d > dist[cur]) continue
-    for (const [nb, w] of (graph[cur] || [])) {
-      const nd = d + w
-      if (nd < (dist[nb] ?? Infinity)) {
-        dist[nb] = nd; prev[nb] = cur
-        queue.push([nd, nb])
-      }
-    }
-  }
-  const path = []
-  let cur = end
-  while (cur != null) { path.unshift(cur); cur = prev[cur] }
-  return path[0] == start ? path : []
-}
-
-// Deduplicate simultaneous identical Overpass requests (React StrictMode fires effects twice)
-const _inFlight = new Map()
-
-async function fetchTrainRoute(lat1, lon1, lat2, lon2) {
-  const latD = Math.abs(lat2 - lat1)
-  const lonD = Math.abs(lon2 - lon1)
-  console.log('[train] bbox delta:', latD, lonD)
-  if (latD > 8 || lonD > 12) { console.log('[train] bbox too large'); return null }
-
-  const margin = Math.max(latD, lonD) * 0.2 + 0.4
-  const S = (Math.min(lat1, lat2) - margin).toFixed(4)
-  const N = (Math.max(lat1, lat2) + margin).toFixed(4)
-  const W = (Math.min(lon1, lon2) - margin).toFixed(4)
-  const E = (Math.max(lon1, lon2) + margin).toFixed(4)
-  const flightKey = `${S},${W},${N},${E}`
-
-  if (_inFlight.has(flightKey)) {
-    console.log('[train] reusing in-flight request')
-    return _inFlight.get(flightKey)
-  }
-
-  const query = `[out:json][timeout:90];
-(
-  way["railway"="rail"](${S},${W},${N},${E});
-);
-(._;>;);
-out body;`
-
-  console.log('[train] Overpass query bbox:', S, W, N, E)
-
-  const doFetch = async () => {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 95_000) // 95 s hard cap
-    try {
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST', body: query, signal: controller.signal,
-      })
-      if (res.status === 429) return null   // signal retry
-      console.log('[train] Overpass status:', res.status)
-      if (!res.ok) return false             // hard fail
-      return res.json()
-    } catch (e) {
-      if (e.name === 'AbortError') { console.log('[train] fetch timed out'); return null }
-      throw e
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
-  const promise = (async () => {
-    try {
-      let data = await doFetch()
-      // Keep retrying on 429 or timeout (null), up to 5 attempts, 10 s apart
-      let attempts = 1
-      while (data === null && attempts < 5) {
-        console.log(`[train] attempt ${attempts} failed, retrying in 10s...`)
-        await new Promise(r => setTimeout(r, 10_000))
-        data = await doFetch()
-        attempts++
-      }
-      if (!data) return null
-      console.log('[train] elements:', data.elements?.length)
-
-      const nodes = {}
-      const ways  = []
-      data.elements.forEach(el => {
-        if (el.type === 'node') nodes[String(el.id)] = [el.lat, el.lon]
-        if (el.type === 'way' && el.nodes) ways.push(el.nodes)
-      })
-      console.log('[train] nodes:', Object.keys(nodes).length, 'ways:', ways.length)
-
-      const graph = {}
-      ways.forEach(wayNodes => {
-        for (let i = 0; i < wayNodes.length - 1; i++) {
-          const a = String(wayNodes[i]), b = String(wayNodes[i + 1])
-          if (!nodes[a] || !nodes[b]) continue
-          const d = _haversineM(nodes[a][0], nodes[a][1], nodes[b][0], nodes[b][1])
-          if (!graph[a]) graph[a] = []
-          if (!graph[b]) graph[b] = []
-          graph[a].push([b, d])
-          graph[b].push([a, d])
-        }
-      })
-      console.log('[train] graph nodes:', Object.keys(graph).length)
-
-      if (!Object.keys(graph).length) { console.log('[train] empty graph'); return null }
-
-      const startId = _nearestNode(nodes, graph, lat1, lon1)
-      const endId   = _nearestNode(nodes, graph, lat2, lon2)
-      console.log('[train] startId:', startId, 'inGraph:', !!graph[startId])
-      console.log('[train] endId:  ', endId,   'inGraph:', !!graph[endId])
-      if (!startId || !endId || startId === endId) return null
-
-      const path = _dijkstra(graph, startId, endId)
-      console.log('[train] path length:', path.length)
-      if (!path.length) return null
-
-      return [
-        [lat1, lon1],
-        ...path.map(id => nodes[id]),
-        [lat2, lon2],
-      ]
-    } catch (e) {
-      console.error('[train] error:', e)
-      return null
-    }
-  })()
-
-  _inFlight.set(flightKey, promise)
-  promise.finally(() => _inFlight.delete(flightKey))
-  return promise
-}
-
-async function computeRoute(from, to, method) {
+async function computeRoute(from, to, seg) {
+  const method = seg?.travel_method || 'other'
   const straight = [[from.latitude, from.longitude], [to.latitude, to.longitude]]
   if (!from.latitude || !to.latitude) return straight
 
   const ck = cacheKey(method, from.latitude, from.longitude, to.latitude, to.longitude)
-  console.log('[route] method:', method, 'cacheHit:', _routeCache.has(ck))
-  if (_routeCache.has(ck)) return _routeCache.get(ck)
+  if (method !== 'train' && _routeCache.has(ck)) return _routeCache.get(ck)
 
   let result
   switch (method) {
@@ -272,13 +120,12 @@ async function computeRoute(from, to, method) {
       result = greatCirclePoints(from.latitude, from.longitude, to.latitude, to.longitude)
       break
     case 'train': {
-      const r = await fetchTrainRoute(from.latitude, from.longitude, to.latitude, to.longitude)
+      const r = await fetchTrainRoute(from, to, seg)
       if (r) {
         _routeCache.set(ck, r)
         persistCache()
         return r
       }
-      // Return null so the caller knows this specific route failed
       return null
     }
     case 'ferry':
@@ -306,7 +153,6 @@ async function computeRoute(from, to, method) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function TripMap({ points = [], segments = [] }) {
-  // Seed from module-level cache so remounts (tab switching) are instant
   const [routes, setRoutes] = useState(() => {
     const seed = {}
     const valid = points.filter(p => p.latitude && p.longitude)
@@ -314,14 +160,18 @@ export default function TripMap({ points = [], segments = [] }) {
     segments.forEach(s => { sMap[`${s.from_point_id}-${s.to_point_id}`] = s })
     for (let i = 0; i < valid.length - 1; i++) {
       const a = valid[i], b = valid[i + 1]
-      const method = sMap[`${a.id}-${b.id}`]?.travel_method || 'other'
+      const seg = sMap[`${a.id}-${b.id}`]
+      if (Array.isArray(seg?.route_geometry) && seg.route_geometry.length > 1) {
+        seed[`${a.id}-${b.id}`] = seg.route_geometry
+        continue
+      }
+      const method = seg?.travel_method || 'other'
+      if (method === 'train') continue
       const ck = cacheKey(method, a.latitude, a.longitude, b.latitude, b.longitude)
       if (_routeCache.has(ck)) seed[`${a.id}-${b.id}`] = _routeCache.get(ck)
     }
     return seed
   })
-  // Keys of train segments where Overpass failed — rendered dashed until retry succeeds
-  const [failedKeys, setFailedKeys] = useState(new Set())
 
   const validPoints = points.filter(p => p.latitude && p.longitude)
 
@@ -333,44 +183,15 @@ export default function TripMap({ points = [], segments = [] }) {
     let cancelled = false
     ;(async () => {
       const computed = {}
-      let failed   = new Set()
       for (let i = 0; i < validPoints.length - 1; i++) {
         const a = validPoints[i], b = validPoints[i + 1]
         const seg = segMap[`${a.id}-${b.id}`]
         const key = `${a.id}-${b.id}`
-        const r = await computeRoute(a, b, seg?.travel_method || 'other')
-        if (r === null) {
-          failed.add(key)   // train fetch failed — mark for retry
-        } else {
-          computed[key] = r
-        }
+        const r = await computeRoute(a, b, seg)
+        if (r) computed[key] = r
       }
       if (!cancelled) {
         setRoutes(prev => ({ ...prev, ...computed }))
-        setFailedKeys(failed)
-      }
-
-      // Auto-retry failed train routes every 60 s until success or component unmounts
-      while (failed.size > 0 && !cancelled) {
-        await new Promise(r => setTimeout(r, 60_000))
-        if (cancelled) return
-        const retried = {}
-        const stillFailed = new Set()
-        for (const key of failed) {
-          const [aid, bid] = key.split('-').map(Number)
-          const a = validPoints.find(p => p.id === aid)
-          const b = validPoints.find(p => p.id === bid)
-          if (!a || !b) continue
-          const seg = segMap[key]
-          const r = await computeRoute(a, b, seg?.travel_method || 'other')
-          if (r === null) stillFailed.add(key)
-          else retried[key] = r
-        }
-        if (!cancelled) {
-          setRoutes(prev => ({ ...prev, ...retried }))
-          setFailedKeys(stillFailed)
-          failed = stillFailed  // update loop variable
-        }
       }
     })()
     return () => { cancelled = true }
@@ -401,17 +222,17 @@ export default function TripMap({ points = [], segments = [] }) {
         const key  = `${pt.id}-${next.id}`
         const seg  = segMap[key]
         const method = getMethod(seg?.travel_method || 'other')
-        const isFailed = failedKeys.has(key)
         const positions = routes[key] || [[pt.latitude, pt.longitude], [next.latitude, next.longitude]]
+        const isTrainFallback = seg?.travel_method === 'train' && !routes[key]
         return (
           <Polyline
             key={key}
             positions={positions}
-            pathOptions={isFailed ? {
-              color: '#94a3b8',
-              weight: 2,
-              dashArray: '6,6',
-              opacity: 0.5,
+            pathOptions={isTrainFallback ? {
+              color: '#475569',
+              weight: 3,
+              dashArray: '8,6',
+              opacity: 0.9,
             } : {
               color:     method.color,
               weight:    seg?.travel_method === 'flight' ? 2 : 3,

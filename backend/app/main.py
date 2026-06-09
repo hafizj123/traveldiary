@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_cors_origins
 from .database import Base, engine
 from .models import User, EmailOTP, Trip, TimelinePoint, TravelSegment  # register models
-from .routers import auth, trips, timeline, segments, upload, public
+from .routers import auth, trips, timeline, segments, upload, public, routes
 
 Base.metadata.create_all(bind=engine)
 
@@ -26,6 +26,7 @@ app.include_router(auth.router)
 app.include_router(trips.router)
 app.include_router(timeline.router)
 app.include_router(segments.router)
+app.include_router(routes.router)
 app.include_router(upload.router)
 app.include_router(public.router)
 

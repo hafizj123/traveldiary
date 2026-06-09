@@ -15,6 +15,7 @@ from ..utils.deps import get_current_user
 from ..models.user import User
 from ..services.weather_service import get_weather
 from ..services.r2_service import delete_image
+from ..services.train_route_service import fetch_and_cache
 
 router = APIRouter(tags=["timeline"])
 
@@ -63,6 +64,7 @@ async def add_point(
     db.add(point)
     db.flush()
 
+    created_train_pairs = []
     # Auto-create segment from previous point
     if data.travel_method and existing_count > 0:
         prev = (
@@ -82,9 +84,23 @@ async def add_point(
                     travel_method=data.travel_method,
                 )
             )
+            if (
+                data.travel_method == "train"
+                and prev.latitude and prev.longitude
+                and point.latitude and point.longitude
+            ):
+                created_train_pairs.append((prev, point))
 
     db.commit()
     db.refresh(point)
+    for from_pt, to_pt in created_train_pairs:
+        await fetch_and_cache(
+            db,
+            from_pt.latitude,
+            from_pt.longitude,
+            to_pt.latitude,
+            to_pt.longitude,
+        )
     return point
 
 
@@ -152,6 +168,25 @@ async def update_point(
 
     db.commit()
     db.refresh(point)
+
+    connected_train_segments = db.query(TravelSegment).filter(
+        ((TravelSegment.from_point_id == point.id) | (TravelSegment.to_point_id == point.id))
+        & (TravelSegment.travel_method == "train")
+    ).all()
+    for seg in connected_train_segments:
+        from_pt = seg.from_point
+        to_pt = seg.to_point
+        if not from_pt or not to_pt:
+            continue
+        if not (from_pt.latitude and from_pt.longitude and to_pt.latitude and to_pt.longitude):
+            continue
+        await fetch_and_cache(
+            db,
+            from_pt.latitude,
+            from_pt.longitude,
+            to_pt.latitude,
+            to_pt.longitude,
+        )
     return point
 
 
