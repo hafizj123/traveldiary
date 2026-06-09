@@ -26,6 +26,13 @@ def _get_trip(trip_id: int, user_id: int, db: Session) -> Trip:
     return trip
 
 
+def _validate_visit_date_in_trip_range(trip: Trip, visit_date) -> None:
+    if trip.start_date and visit_date < trip.start_date:
+        raise HTTPException(400, "Visit date cannot be earlier than the trip start date")
+    if trip.end_date and visit_date > trip.end_date:
+        raise HTTPException(400, "Visit date cannot be later than the trip end date")
+
+
 @router.post("/trips/{trip_id}/points", response_model=TimelinePointResponse, status_code=201)
 async def add_point(
     trip_id: int,
@@ -33,7 +40,8 @@ async def add_point(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    _get_trip(trip_id, user.id, db)
+    trip = _get_trip(trip_id, user.id, db)
+    _validate_visit_date_in_trip_range(trip, data.visit_date)
 
     existing_count = (
         db.query(TimelinePoint).filter(TimelinePoint.trip_id == trip_id).count()
@@ -128,6 +136,10 @@ async def update_point(
         raise HTTPException(404, "Point not found")
 
     updates = data.model_dump(exclude_unset=True)
+    trip = point.trip
+
+    if "visit_date" in updates and updates["visit_date"] is not None:
+        _validate_visit_date_in_trip_range(trip, updates["visit_date"])
 
     new_lat = updates.get("latitude", point.latitude)
     new_lon = updates.get("longitude", point.longitude)
