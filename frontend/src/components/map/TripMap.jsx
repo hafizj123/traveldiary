@@ -1,6 +1,8 @@
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { useEffect, useState, useRef } from 'react'
+import { Fragment, useEffect, useState, useRef } from 'react'
+import { Edit2, Trash2 } from 'lucide-react'
+import { routesApi } from '../../api/routes'
 import { getMethod } from '../../utils/travelIcons'
 import { fmtDate } from '../../utils/formatDate'
 
@@ -27,7 +29,7 @@ function FitBounds({ points }) {
 }
 
 // ─── Persistent route cache (survives refreshes via localStorage) ─────────────
-const LS_KEY = 'td_route_cache_v7'
+const LS_KEY = 'td_route_cache_v10'
 const _routeCache = new Map(
   (() => { try { return Object.entries(JSON.parse(localStorage.getItem(LS_KEY) || '{}')) } catch { return [] } })()
 )
@@ -99,10 +101,47 @@ function bezierCurve(lat1, lon1, lat2, lon2, n = 40) {
   return pts
 }
 
+function shouldDrawConnector(from, to) {
+  if (!from || !to) return false
+  const [lat1, lon1] = from
+  const [lat2, lon2] = to
+  return Math.abs(lat1 - lat2) > 0.0001 || Math.abs(lon1 - lon2) > 0.0001
+}
+
 async function fetchTrainRoute(from, to, seg) {
   if (Array.isArray(seg?.route_geometry) && seg.route_geometry.length > 1) {
     return seg.route_geometry
   }
+  return null
+}
+
+async function fetchFerryRoute(from, to) {
+  try {
+    const { geometry } = await routesApi.ferry({
+      lat1: from.latitude,
+      lon1: from.longitude,
+      lat2: to.latitude,
+      lon2: to.longitude,
+    })
+    if (Array.isArray(geometry) && geometry.length > 1) {
+      return geometry
+    }
+  } catch {}
+  return null
+}
+
+function FlyToFocus({ target }) {
+  const map = useMap()
+  const lastKeyRef = useRef('')
+
+  useEffect(() => {
+    if (!target) return
+    const nextKey = `${target.lat}|${target.lng}|${target.zoom ?? 12}`
+    if (lastKeyRef.current === nextKey) return
+    lastKeyRef.current = nextKey
+    map.flyTo([target.lat, target.lng], target.zoom ?? 12, { duration: 1.2 })
+  }, [target, map])
+
   return null
 }
 
@@ -129,8 +168,11 @@ async function computeRoute(from, to, seg) {
       return null
     }
     case 'ferry':
-      result = bezierCurve(from.latitude, from.longitude, to.latitude, to.longitude)
+    {
+      const r = await fetchFerryRoute(from, to)
+      result = r || straight
       break
+    }
     case 'car':
     case 'bus': {
       const r = await fetchOsrmRoute(from.latitude, from.longitude, to.latitude, to.longitude, 'driving')
@@ -152,7 +194,13 @@ async function computeRoute(from, to, seg) {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function TripMap({ points = [], segments = [] }) {
+export default function TripMap({
+  points = [],
+  segments = [],
+  focusTarget = null,
+  onEditPoint = null,
+  onDeletePoint = null,
+}) {
   const [routes, setRoutes] = useState(() => {
     const seed = {}
     const valid = points.filter(p => p.latitude && p.longitude)
@@ -215,6 +263,7 @@ export default function TripMap({ points = [], segments = [] }) {
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
       />
       <FitBounds points={validPoints} />
+      <FlyToFocus target={focusTarget} />
 
       {validPoints.map((pt, i) => {
         if (i >= validPoints.length - 1) return null
@@ -222,24 +271,70 @@ export default function TripMap({ points = [], segments = [] }) {
         const key  = `${pt.id}-${next.id}`
         const seg  = segMap[key]
         const method = getMethod(seg?.travel_method || 'other')
-        const positions = routes[key] || [[pt.latitude, pt.longitude], [next.latitude, next.longitude]]
+        const trainFallbackPositions = seg?.travel_method === 'train'
+          && Array.isArray(seg?.route_anchor_start)
+          && Array.isArray(seg?.route_anchor_end)
+          ? [
+              [seg.route_anchor_start[0], seg.route_anchor_start[1]],
+              [seg.route_anchor_end[0], seg.route_anchor_end[1]],
+            ]
+          : [[pt.latitude, pt.longitude], [next.latitude, next.longitude]]
+        const positions = routes[key] || trainFallbackPositions
         const isTrainFallback = seg?.travel_method === 'train' && !routes[key]
+        const connectorStart = seg?.travel_method === 'train' && Array.isArray(seg?.route_anchor_start)
+          ? bezierCurve(pt.latitude, pt.longitude, seg.route_anchor_start[0], seg.route_anchor_start[1], 20)
+          : null
+        const connectorEnd = seg?.travel_method === 'train' && Array.isArray(seg?.route_anchor_end)
+          ? bezierCurve(seg.route_anchor_end[0], seg.route_anchor_end[1], next.latitude, next.longitude, 20)
+          : null
         return (
-          <Polyline
-            key={key}
-            positions={positions}
-            pathOptions={isTrainFallback ? {
-              color: '#475569',
-              weight: 3,
-              dashArray: '8,6',
-              opacity: 0.9,
-            } : {
-              color:     method.color,
-              weight:    seg?.travel_method === 'flight' ? 2 : 3,
-              dashArray: method.lineStyle ? method.lineStyle.join(',') : null,
-              opacity:   0.85,
-            }}
-          />
+          <Fragment key={key}>
+            {seg?.travel_method === 'train' && connectorStart && shouldDrawConnector(
+              [pt.latitude, pt.longitude],
+              seg.route_anchor_start,
+            ) && (
+              <Polyline
+                key={`${key}-connector-start`}
+                positions={connectorStart}
+                pathOptions={{
+                  color: '#94a3b8',
+                  weight: 2,
+                  dashArray: '4,6',
+                  opacity: 1,
+                }}
+              />
+            )}
+            <Polyline
+              key={key}
+              positions={positions}
+              pathOptions={isTrainFallback ? {
+                color: '#475569',
+                weight: 3,
+                dashArray: '8,6',
+                opacity: 0.9,
+              } : {
+                color:     method.color,
+                weight:    seg?.travel_method === 'flight' ? 2 : 3,
+                dashArray: method.lineStyle ? method.lineStyle.join(',') : null,
+                opacity:   0.85,
+              }}
+            />
+            {seg?.travel_method === 'train' && connectorEnd && shouldDrawConnector(
+              seg.route_anchor_end,
+              [next.latitude, next.longitude],
+            ) && (
+              <Polyline
+                key={`${key}-connector-end`}
+                positions={connectorEnd}
+                pathOptions={{
+                  color: '#94a3b8',
+                  weight: 2,
+                  dashArray: '4,6',
+                  opacity: 1,
+                }}
+              />
+            )}
+          </Fragment>
         )
       })}
 
@@ -266,6 +361,30 @@ export default function TripMap({ points = [], segments = [] }) {
               )}
               {pt.description && (
                 <p className="text-slate-600 text-xs mt-1 line-clamp-2">{pt.description}</p>
+              )}
+              {(onEditPoint || onDeletePoint) && (
+                <div className="flex gap-2 pt-2">
+                  {onEditPoint && (
+                    <button
+                      type="button"
+                      onClick={() => onEditPoint(pt)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-100"
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                      Edit
+                    </button>
+                  )}
+                  {onDeletePoint && (
+                    <button
+                      type="button"
+                      onClick={() => onDeletePoint(pt)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </Popup>

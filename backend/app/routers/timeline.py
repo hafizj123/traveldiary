@@ -204,6 +204,59 @@ async def delete_point(
     )
     if not point:
         raise HTTPException(404, "Point not found")
+
+    ordered_points = (
+        db.query(TimelinePoint)
+        .filter(TimelinePoint.trip_id == point.trip_id)
+        .order_by(TimelinePoint.sequence_no, TimelinePoint.id)
+        .all()
+    )
+    point_index = next((idx for idx, item in enumerate(ordered_points) if item.id == point.id), None)
+    prev_point = ordered_points[point_index - 1] if point_index is not None and point_index > 0 else None
+    next_point = (
+        ordered_points[point_index + 1]
+        if point_index is not None and point_index < len(ordered_points) - 1
+        else None
+    )
+
+    touching_segments = db.query(TravelSegment).filter(
+        (TravelSegment.from_point_id == point_id) | (TravelSegment.to_point_id == point_id)
+    ).all()
+    incoming_segment = next((seg for seg in touching_segments if prev_point and seg.from_point_id == prev_point.id), None)
+    outgoing_segment = next((seg for seg in touching_segments if next_point and seg.to_point_id == next_point.id), None)
+
+    bridged_train_pair = None
+    bridge_source_segment = outgoing_segment or incoming_segment
+    should_bridge = (
+        prev_point is not None
+        and next_point is not None
+        and incoming_segment is not None
+        and outgoing_segment is not None
+        and bridge_source_segment is not None
+    )
+
+    if should_bridge:
+        existing_bridge = db.query(TravelSegment).filter(
+            TravelSegment.trip_id == point.trip_id,
+            TravelSegment.from_point_id == prev_point.id,
+            TravelSegment.to_point_id == next_point.id,
+        ).first()
+        if not existing_bridge:
+            bridged_segment = TravelSegment(
+                trip_id=point.trip_id,
+                from_point_id=prev_point.id,
+                to_point_id=next_point.id,
+                travel_method=bridge_source_segment.travel_method,
+                description=bridge_source_segment.description,
+            )
+            db.add(bridged_segment)
+            if (
+                bridged_segment.travel_method == "train"
+                and prev_point.latitude and prev_point.longitude
+                and next_point.latitude and next_point.longitude
+            ):
+                bridged_train_pair = (prev_point, next_point)
+
     image_url = point.image_url
     # Delete all segments touching this point before deleting the point
     db.query(TravelSegment).filter(
@@ -211,5 +264,16 @@ async def delete_point(
     ).delete(synchronize_session=False)
     db.delete(point)
     db.commit()
+
+    if bridged_train_pair:
+        from_pt, to_pt = bridged_train_pair
+        await fetch_and_cache(
+            db,
+            from_pt.latitude,
+            from_pt.longitude,
+            to_pt.latitude,
+            to_pt.longitude,
+        )
+
     if image_url:
         await delete_image(image_url)

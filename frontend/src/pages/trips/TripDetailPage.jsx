@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Edit2, Trash2, Plus, MapPin, Clock, Images, Route, Globe, Share2 } from 'lucide-react'
 import { tripsApi } from '../../api/trips'
 import { timelineApi } from '../../api/timeline'
@@ -25,12 +25,23 @@ export default function TripDetailPage() {
   const { tripId } = useParams()
   const navigate   = useNavigate()
   const { user }   = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [trip, setTrip]         = useState(null)
   const [points, setPoints]     = useState([])
   const [segments, setSegments] = useState([])
   const [loading, setLoading]   = useState(true)
-  const [tab, setTab]           = useState('map')
+  const [tab, setTab]           = useState(searchParams.get('tab') || 'map')
+  const [mapFocusTarget, setMapFocusTarget] = useState(() => {
+    const lat = searchParams.get('focusLat')
+    const lng = searchParams.get('focusLon')
+    if (!lat || !lng) return null
+    return {
+      lat: Number(lat),
+      lng: Number(lng),
+      zoom: Number(searchParams.get('focusZoom') || 12),
+    }
+  })
 
   const load = async () => {
     try {
@@ -46,6 +57,38 @@ export default function TripDetailPage() {
 
   useEffect(() => { load() }, [tripId])
 
+  useEffect(() => {
+    const nextTab = searchParams.get('tab') || 'map'
+    setTab(nextTab)
+
+    const lat = searchParams.get('focusLat')
+    const lng = searchParams.get('focusLon')
+    if (lat && lng) {
+      setMapFocusTarget({
+        lat: Number(lat),
+        lng: Number(lng),
+        zoom: Number(searchParams.get('focusZoom') || 12),
+      })
+    } else {
+      setMapFocusTarget(null)
+    }
+  }, [searchParams])
+
+  const updateViewParams = (nextTab, focusTarget = null) => {
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('tab', nextTab)
+    if (focusTarget) {
+      nextParams.set('focusLat', String(focusTarget.lat))
+      nextParams.set('focusLon', String(focusTarget.lng))
+      nextParams.set('focusZoom', String(focusTarget.zoom ?? 12))
+    } else {
+      nextParams.delete('focusLat')
+      nextParams.delete('focusLon')
+      nextParams.delete('focusZoom')
+    }
+    setSearchParams(nextParams, { replace: true })
+  }
+
   const handleDeleteTrip = async () => {
     if (!confirm('Delete this trip and all its data?')) return
     await tripsApi.delete(tripId)
@@ -58,6 +101,35 @@ export default function TripDetailPage() {
     await timelineApi.deletePoint(pointId)
     toast.success('Location removed')
     load()
+  }
+
+  const handleMapDeletePoint = async (point) => {
+    if (!confirm('Delete this location?')) return
+
+    const currentIndex = points.findIndex((item) => item.id === point.id)
+    const fallbackPoint = currentIndex > 0
+      ? points[currentIndex - 1]
+      : (currentIndex >= 0 && currentIndex < points.length - 1 ? points[currentIndex + 1] : null)
+
+    await timelineApi.deletePoint(point.id)
+    toast.success('Location removed')
+    updateViewParams(
+      'map',
+      fallbackPoint?.latitude && fallbackPoint?.longitude
+        ? {
+            lat: Number(fallbackPoint.latitude),
+            lng: Number(fallbackPoint.longitude),
+            zoom: 9,
+          }
+        : null
+    )
+    load()
+  }
+
+  const handleMapEditPoint = (point) => {
+    navigate(
+      `/trips/${tripId}/points/${point.id}/edit?returnTo=map&focusLat=${point.latitude}&focusLon=${point.longitude}&focusZoom=13`
+    )
   }
 
   if (loading) return <Layout><div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div></Layout>
@@ -118,7 +190,7 @@ export default function TripDetailPage() {
           {TABS.map(({ id, label, Icon }) => (
             <button
               key={id}
-              onClick={() => setTab(id)}
+              onClick={() => updateViewParams(id)}
               className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-colors
                 ${tab === id ? 'bg-primary-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
             >
@@ -130,7 +202,7 @@ export default function TripDetailPage() {
         {/* Add location button */}
         <div className="flex justify-end">
           <Link
-            to={`/trips/${tripId}/points/new`}
+            to={`/trips/${tripId}/points/new?returnTo=${tab}`}
             className="flex items-center gap-2 bg-primary-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
           >
             <Plus className="w-4 h-4" /> Add Location
@@ -140,7 +212,13 @@ export default function TripDetailPage() {
         {/* Tab content */}
         {tab === 'map' && (
           <div className="h-[500px] rounded-xl overflow-hidden border border-slate-100 shadow-sm">
-            <TripMap points={points} segments={segments} />
+            <TripMap
+              points={points}
+              segments={segments}
+              focusTarget={mapFocusTarget}
+              onEditPoint={handleMapEditPoint}
+              onDeletePoint={handleMapDeletePoint}
+            />
           </div>
         )}
 

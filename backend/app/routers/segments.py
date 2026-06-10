@@ -27,6 +27,8 @@ def _segment_response_with_route(
     payload = TravelSegmentResponse.model_validate(seg).model_dump()
     payload["route_geometry"] = None
     payload["route_status"] = None
+    payload["route_anchor_start"] = None
+    payload["route_anchor_end"] = None
 
     if seg.travel_method != "train":
         return payload
@@ -42,7 +44,7 @@ def _segment_response_with_route(
         payload["route_status"] = "pending"
         return payload
 
-    geometry, status = get_train_route_state(
+    geometry, status, anchor_start, anchor_end = get_train_route_state(
         db,
         from_pt.latitude,
         from_pt.longitude,
@@ -51,6 +53,8 @@ def _segment_response_with_route(
     )
     payload["route_geometry"] = geometry
     payload["route_status"] = status
+    payload["route_anchor_start"] = anchor_start
+    payload["route_anchor_end"] = anchor_end
     return payload
 
 

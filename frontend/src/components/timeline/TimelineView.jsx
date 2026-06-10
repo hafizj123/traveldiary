@@ -61,7 +61,7 @@ export default function TimelineView({ points = [], segments = [], tripId, onDel
                       <span className="text-xs text-slate-400 whitespace-nowrap">{fmtDate(pt.visit_date)}</span>
                       {tripId && (
                         <Link
-                          to={`/trips/${tripId}/points/${pt.id}/edit`}
+                          to={`/trips/${tripId}/points/${pt.id}/edit?returnTo=timeline`}
                           className="ml-2 p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
                           title="Edit"
                         >

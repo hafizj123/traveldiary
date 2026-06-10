@@ -1,23 +1,33 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Upload } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 import { timelineApi } from '../../api/timeline'
 import { uploadApi } from '../../api/upload'
 import { tripsApi } from '../../api/trips'
+import { routesApi } from '../../api/routes'
 import Layout from '../../components/layout/Layout'
 import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import MapPicker from '../../components/map/MapPicker'
 import PlaceSearch from '../../components/ui/PlaceSearch'
+import SearchableLocationInput from '../../components/ui/SearchableLocationInput'
+import { searchCities, searchCountries } from '../../components/ui/locationSearch'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 import { TRAVEL_METHODS } from '../../utils/travelIcons'
 import { getVisitDateRangeError } from '../../utils/visitDate'
 import toast from 'react-hot-toast'
 
+const SNAP_METHOD_LABELS = {
+  train: 'train station',
+  flight: 'airport',
+  ferry: 'ferry terminal',
+}
+
 export default function EditPointPage() {
   const { tripId, pointId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const [trip, setTrip] = useState(null)
   const [form, setForm] = useState(null)
@@ -28,10 +38,27 @@ export default function EditPointPage() {
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [snappingTransportPlace, setSnappingTransportPlace] = useState(false)
+  const [mapFocusTarget, setMapFocusTarget] = useState(null)
+  const [trainStation, setTrainStation] = useState(null)
 
   const originalUrlRef = useRef(null)
   const newlyUploadedRef = useRef(null)
   const submittedRef = useRef(false)
+  const previousTravelMethodRef = useRef('')
+
+  const clearLocationFields = useCallback(() => {
+    setForm((current) => current ? ({
+      ...current,
+      country: '',
+      city: '',
+      place_name: '',
+      latitude: '',
+      longitude: '',
+    }) : current)
+    setMapFocusTarget(null)
+    setTrainStation(null)
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -73,6 +100,15 @@ export default function EditPointPage() {
       if (seg) {
         setIncomingSegment(seg)
         setTravelMethod(seg.travel_method || '')
+        if (SNAP_METHOD_LABELS[seg.travel_method] && pt.latitude && pt.longitude) {
+          setTrainStation({
+            place_name: pt.place_name,
+            latitude: Number(pt.latitude),
+            longitude: Number(pt.longitude),
+            city: pt.city || '',
+            country: pt.country || '',
+          })
+        }
       }
 
       const sorted = [...pts].sort((a, b) => a.sequence_no - b.sequence_no)
@@ -116,8 +152,165 @@ export default function EditPointPage() {
 
   const dateError = form ? getVisitDateRangeError(form.visit_date, trip) : ''
 
+  const isSnapMethod = Boolean(SNAP_METHOD_LABELS[travelMethod])
+
+  const applyLocationResult = useCallback((location, zoom = 13) => {
+    setForm((current) => current ? ({
+      ...current,
+      place_name: location.place_name || current.place_name,
+      city: location.city || current.city,
+      country: location.country || current.country,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    }) : current)
+    setMapFocusTarget({
+      lat: Number(location.latitude),
+      lng: Number(location.longitude),
+      zoom,
+    })
+  }, [])
+
+  const snapToNearestTransportPlace = useCallback(async (lat, lon, method, options = {}) => {
+    const { showSuccess = true } = options
+    setSnappingTransportPlace(true)
+    setTrainStation(null)
+
+    try {
+      const result = method === 'train'
+        ? await routesApi.nearestTrainStation({ lat, lon })
+        : await routesApi.nearestTransportPlace({ lat, lon, method })
+      const station = method === 'train' ? result.station : result.place
+      if (!station) {
+        toast.error(`No ${SNAP_METHOD_LABELS[method]} found nearby. Choose closer to one.`)
+        return false
+      }
+
+      const normalizedStation = {
+        place_name: station.place_name || station.name,
+        city: station.city || '',
+        country: station.country || '',
+        latitude: station.latitude,
+        longitude: station.longitude,
+      }
+      setTrainStation(normalizedStation)
+      applyLocationResult(normalizedStation)
+
+      if (showSuccess) {
+        toast.success(`Snapped to ${normalizedStation.place_name}`)
+      }
+
+      return true
+    } catch {
+      toast.error(`Failed to find a nearby ${SNAP_METHOD_LABELS[method]}`)
+      return false
+    } finally {
+      setSnappingTransportPlace(false)
+    }
+  }, [applyLocationResult])
+
+  const reverseGeocodeMapPick = useCallback(async (lat, lon) => {
+    setSnappingTransportPlace(true)
+    setTrainStation(null)
+
+    try {
+      const { location } = await routesApi.reverseLocation({ lat, lon })
+      if (!location) {
+        toast.error('Failed to identify this location')
+        return false
+      }
+
+      applyLocationResult({
+        place_name: location.place_name,
+        city: location.city,
+        country: location.country,
+        latitude: location.latitude,
+        longitude: location.longitude,
+      })
+      toast.success('Location details filled from the map')
+      return true
+    } catch {
+      toast.error('Failed to identify this location')
+      return false
+    } finally {
+      setSnappingTransportPlace(false)
+    }
+  }, [applyLocationResult])
+
+  useEffect(() => {
+    if (!form) return
+
+    const previousMethod = previousTravelMethodRef.current
+
+    if (!previousMethod || previousMethod === travelMethod) {
+      if (!isSnapMethod) {
+        setTrainStation(null)
+      } else if (form.latitude && form.longitude && !trainStation) {
+        setTrainStation({
+          place_name: form.place_name,
+          latitude: Number(form.latitude),
+          longitude: Number(form.longitude),
+          city: form.city || '',
+          country: form.country || '',
+        })
+      }
+      previousTravelMethodRef.current = travelMethod
+      return
+    }
+
+    if (!travelMethod) {
+      clearLocationFields()
+      previousTravelMethodRef.current = travelMethod
+      return
+    }
+
+    if (isSnapMethod) {
+      if (form.latitude !== '' && form.longitude !== '') {
+        snapToNearestTransportPlace(Number(form.latitude), Number(form.longitude), travelMethod, { showSuccess: false })
+      } else {
+        clearLocationFields()
+      }
+      previousTravelMethodRef.current = travelMethod
+      return
+    }
+
+    setTrainStation(null)
+    previousTravelMethodRef.current = travelMethod
+  }, [
+    clearLocationFields,
+    form,
+    form?.city,
+    form?.country,
+    form?.latitude,
+    form?.longitude,
+    form?.place_name,
+    isSnapMethod,
+    snapToNearestTransportPlace,
+    trainStation,
+    travelMethod,
+  ])
+
+  const buildReturnUrl = (focusTarget = null) => {
+    const returnTo = searchParams.get('returnTo') || 'timeline'
+    const params = new URLSearchParams({ tab: returnTo })
+    if (
+      returnTo === 'map'
+      && focusTarget
+      && Number.isFinite(focusTarget.lat)
+      && Number.isFinite(focusTarget.lng)
+    ) {
+      params.set('focusLat', String(focusTarget.lat))
+      params.set('focusLon', String(focusTarget.lng))
+      params.set('focusZoom', String(focusTarget.zoom ?? 12))
+    }
+    return `/trips/${tripId}?${params.toString()}`
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (isSnapMethod && !trainStation) {
+      toast.error(`Choose a ${SNAP_METHOD_LABELS[travelMethod]} from search or by clicking near one on the map`)
+      return
+    }
     if (dateError) {
       toast.error(dateError)
       return
@@ -155,7 +348,11 @@ export default function EditPointPage() {
         uploadApi.deleteImage(originalUrlRef.current).catch(() => {})
       }
       toast.success('Location updated')
-      navigate(`/trips/${tripId}`)
+      navigate(buildReturnUrl({
+        lat: form.latitude !== '' ? parseFloat(form.latitude) : null,
+        lng: form.longitude !== '' ? parseFloat(form.longitude) : null,
+        zoom: 13,
+      }))
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to update')
     } finally {
@@ -232,23 +429,93 @@ export default function EditPointPage() {
             <PlaceSearch
               label="Search to change location"
               onSelect={({ place_name, city, country, latitude, longitude }) => {
-                setForm((current) => ({
-                  ...current,
+                applyLocationResult({
                   place_name,
-                  city: city || current.city,
-                  country: country || current.country,
+                  city: city || '',
+                  country: country || '',
                   latitude,
                   longitude,
-                }))
+                }, city ? 11 : 6)
+                if (isSnapMethod) {
+                  setTrainStation({
+                    place_name,
+                    latitude: Number(latitude),
+                    longitude: Number(longitude),
+                    city: city || '',
+                    country: country || '',
+                  })
+                }
                 toast.success('Location auto-filled!')
               }}
               travelMethod={travelMethod}
             />
             <div className="border-t border-slate-50 pt-4 grid grid-cols-2 gap-4">
-              <Input label="Country *" value={form.country} onChange={set('country')} required />
-              <Input label="City" value={form.city} onChange={set('city')} />
+              <SearchableLocationInput
+                label="Country *"
+                value={form.country}
+                onChange={(value) => setForm((current) => ({ ...current, country: value }))}
+                onSelect={(result) => {
+                  setForm((current) => ({
+                    ...current,
+                    country: result.country || result.label,
+                  }))
+                  if (isSnapMethod) {
+                    setTrainStation(null)
+                  }
+                  if (result.latitude && result.longitude) {
+                    setMapFocusTarget({
+                      lat: Number(result.latitude),
+                      lng: Number(result.longitude),
+                      zoom: 5,
+                    })
+                  }
+                }}
+                searchFn={searchCountries}
+                required
+                placeholder="Search country"
+                disabled={isSnapMethod}
+              />
+              <SearchableLocationInput
+                label="City"
+                value={form.city}
+                onChange={(value) => setForm((current) => ({ ...current, city: value }))}
+                onSelect={(result) => {
+                  setForm((current) => ({
+                    ...current,
+                    city: result.city || result.label,
+                    country: result.country || current.country,
+                  }))
+                  if (isSnapMethod) {
+                    setTrainStation(null)
+                  }
+                  if (result.latitude && result.longitude) {
+                    setMapFocusTarget({
+                      lat: Number(result.latitude),
+                      lng: Number(result.longitude),
+                      zoom: 10,
+                    })
+                  }
+                }}
+                searchFn={(text) => searchCities(text, form.country)}
+                placeholder={form.country ? `Search city in ${form.country}` : 'Search city'}
+                disabled={isSnapMethod}
+              />
             </div>
-            <Input label="Place name *" value={form.place_name} onChange={set('place_name')} required />
+            {isSnapMethod && (
+              <p className="text-xs text-slate-400 -mt-1">
+                {travelMethod === 'train'
+                  ? 'Train locations must be selected from train station search or snapped from the map.'
+                  : `This ${travelMethod} stop should be selected from search or snapped to the nearest ${SNAP_METHOD_LABELS[travelMethod]}.`}
+              </p>
+            )}
+            <Input
+              label="Place name *"
+              value={form.place_name}
+              onChange={set('place_name')}
+              required
+              readOnly={isSnapMethod}
+              className={isSnapMethod ? 'bg-slate-50' : ''}
+            />
             <Input
               label="Visit date *"
               type="date"
@@ -281,18 +548,58 @@ export default function EditPointPage() {
           <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 space-y-4">
             <h2 className="font-semibold text-slate-700">Location</h2>
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Latitude" type="number" step="any" value={form.latitude} onChange={set('latitude')} />
-              <Input label="Longitude" type="number" step="any" value={form.longitude} onChange={set('longitude')} />
+              <Input
+                label="Latitude"
+                type="number"
+                step="any"
+                value={form.latitude}
+                onChange={set('latitude')}
+                readOnly={isSnapMethod}
+                className={isSnapMethod ? 'bg-slate-50' : ''}
+              />
+              <Input
+                label="Longitude"
+                type="number"
+                step="any"
+                value={form.longitude}
+                onChange={set('longitude')}
+                readOnly={isSnapMethod}
+                className={isSnapMethod ? 'bg-slate-50' : ''}
+              />
             </div>
             <MapPicker
               lat={form.latitude}
               lon={form.longitude}
-              onChange={(lat, lon) => setForm((current) => ({ ...current, latitude: lat, longitude: lon }))}
+              onChange={(lat, lon) => {
+                if (isSnapMethod) {
+                  snapToNearestTransportPlace(lat, lon, travelMethod)
+                  return
+                }
+                reverseGeocodeMapPick(lat, lon)
+              }}
+              focusTarget={mapFocusTarget}
+              isLoading={snappingTransportPlace}
+              loadingText={isSnapMethod
+                ? `Finding the nearest ${SNAP_METHOD_LABELS[travelMethod]}...`
+                : 'Identifying this location...'}
+              helperText={isSnapMethod
+                ? (snappingTransportPlace
+                  ? `Finding the nearest ${SNAP_METHOD_LABELS[travelMethod]}...`
+                  : `Click on the map and wait until it snaps to a ${SNAP_METHOD_LABELS[travelMethod]}`)
+                : 'Click on the map to place a pin and auto-fill the location'}
             />
           </div>
 
           <div className="flex gap-3">
-            <Button type="submit" loading={saving} className="flex-1" size="lg">Save changes</Button>
+            <Button
+              type="submit"
+              loading={saving}
+              disabled={uploading || snappingTransportPlace || (isSnapMethod && !trainStation)}
+              className="flex-1"
+              size="lg"
+            >
+              Save changes
+            </Button>
             <Link to={`/trips/${tripId}`}>
               <Button type="button" variant="secondary" size="lg">Cancel</Button>
             </Link>

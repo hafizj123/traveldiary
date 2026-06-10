@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, MapPin, Loader2 } from 'lucide-react'
+import { Search, MapPin } from 'lucide-react'
+import { searchPlaceResults } from './locationSearch'
 
 const METHOD_FILTERS = {
   train: {
@@ -24,83 +25,12 @@ const METHOD_FILTERS = {
   },
 }
 
-const GEOAPIFY_KEY = import.meta.env.VITE_GEOAPIFY_API_KEY
-
-function buildNominatimUrl(text, travelMethod) {
-  const filter = METHOD_FILTERS[travelMethod]
-  const params = new URLSearchParams({
-    q: filter ? filter.nominatimQuery(text) : text,
-    format: 'jsonv2',
-    limit: '10',
-    addressdetails: '1',
-    namedetails: '1',
-    dedupe: '1',
-    'accept-language': 'en',
-  })
-  return `https://nominatim.openstreetmap.org/search?${params.toString()}`
-}
-
-function buildGeoapifyUrl(text, travelMethod) {
-  const filter = METHOD_FILTERS[travelMethod]
-  const params = new URLSearchParams({
-    text,
-    format: 'json',
-    limit: '10',
-    lang: 'en',
-    apiKey: GEOAPIFY_KEY,
-  })
-  if (filter?.geoapifyType) params.set('type', filter.geoapifyType)
-  return `https://api.geoapify.com/v1/geocode/autocomplete?${params.toString()}`
-}
-
-function mapNominatimResult(result) {
-  const addr = result.address || {}
-  const city = addr.city || addr.town || addr.village || addr.suburb || addr.county || ''
-  const country = addr.country || ''
-  const englishName = result.namedetails?.['name:en']
-  const primaryName = englishName || result.namedetails?.name || result.name || result.display_name?.split(',')[0]?.trim() || ''
-
-  return {
-    id: result.place_id,
-    place_name: primaryName,
-    city,
-    country,
-    latitude: parseFloat(parseFloat(result.lat).toFixed(6)),
-    longitude: parseFloat(parseFloat(result.lon).toFixed(6)),
-    subtitle: result.display_name,
-  }
-}
-
-function mapGeoapifyResult(result) {
-  const city = result.city || result.town || result.village || result.suburb || result.county || ''
-  const country = result.country || ''
-  const primaryName = result.name || result.address_line1 || result.formatted?.split(',')[0]?.trim() || ''
-
-  return {
-    id: result.place_id || `${result.lat}-${result.lon}-${primaryName}`,
-    place_name: primaryName,
-    city,
-    country,
-    latitude: parseFloat(parseFloat(result.lat).toFixed(6)),
-    longitude: parseFloat(parseFloat(result.lon).toFixed(6)),
-    subtitle: result.formatted || [primaryName, city, country].filter(Boolean).join(', '),
-  }
-}
-
 async function searchPlaces(text, travelMethod) {
-  if (GEOAPIFY_KEY) {
-    const response = await fetch(buildGeoapifyUrl(text, travelMethod), {
-      headers: { Accept: 'application/json' },
-    })
-    const data = await response.json()
-    return (data.results || []).map(mapGeoapifyResult)
-  }
-
-  const response = await fetch(buildNominatimUrl(text, travelMethod), {
-    headers: { Accept: 'application/json' },
+  const filter = METHOD_FILTERS[travelMethod]
+  return searchPlaceResults(text, {
+    type: filter?.geoapifyType,
+    nominatimQuery: filter ? filter.nominatimQuery(text) : undefined,
   })
-  const data = await response.json()
-  return Array.isArray(data) ? data.map(mapNominatimResult) : []
 }
 
 export default function PlaceSearch({ onSelect, placeholder, label = 'Search place', travelMethod }) {
@@ -188,7 +118,10 @@ export default function PlaceSearch({ onSelect, placeholder, label = 'Search pla
           className="w-full pl-9 pr-9 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
         {loading && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary-500 animate-spin" />
+          <span
+            aria-hidden="true"
+            className="absolute right-3 top-1/2 -translate-y-1/2 block h-4 w-4 rounded-full border-2 border-slate-200 border-t-primary-500 animate-spin"
+          />
         )}
       </div>
 
