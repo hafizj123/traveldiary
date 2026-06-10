@@ -23,5 +23,8 @@ jobs:
           port: ${{ secrets.DO_PORT || 22 }}
           script: |
             cd /var/www/traveldiary
+            if [ ! -f scripts/deploy.sh ]; then
+              git pull --ff-only origin main
+            fi
             chmod +x scripts/deploy.sh
             ./scripts/deploy.sh
