@@ -101,8 +101,8 @@ export default function EditPointPage() {
           : current.visit_date,
       }))
       toast.success('Photo updated')
-    } catch {
-      toast.error('Upload failed')
+    } catch (err) {
+      toast.error(err.message || 'Upload failed')
     } finally {
       setUploading(false)
     }

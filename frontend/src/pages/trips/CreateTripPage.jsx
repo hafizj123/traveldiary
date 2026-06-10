@@ -27,8 +27,8 @@ export default function CreateTripPage() {
       const res = await uploadApi.image(file)
       setForm(f => ({ ...f, cover_image_url: res.url }))
       toast.success('Cover image uploaded')
-    } catch {
-      toast.error('Upload failed')
+    } catch (err) {
+      toast.error(err.message || 'Upload failed')
     } finally {
       setUploading(false)
     }

@@ -76,8 +76,8 @@ export default function AddPointPage() {
       }))
       if (res.exif) toast.success('GPS and date auto-filled from photo!')
       else toast.success('Photo uploaded')
-    } catch {
-      toast.error('Upload failed')
+    } catch (err) {
+      toast.error(err.message || 'Upload failed')
     } finally {
       setUploading(false)
     }
