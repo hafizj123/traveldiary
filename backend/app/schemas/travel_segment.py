@@ -24,6 +24,7 @@ class TravelSegmentResponse(BaseModel):
     description: Optional[str] = None
     route_geometry: Optional[list[list[float]]] = None
     route_status: Optional[str] = None
+    route_provider: Optional[str] = None
     route_anchor_start: Optional[list[float]] = None
     route_anchor_end: Optional[list[float]] = None
     created_at: datetime

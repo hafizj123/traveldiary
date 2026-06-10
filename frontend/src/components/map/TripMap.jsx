@@ -112,6 +112,19 @@ async function fetchTrainRoute(from, to, seg) {
   if (Array.isArray(seg?.route_geometry) && seg.route_geometry.length > 1) {
     return seg.route_geometry
   }
+  try {
+    const { geometry } = await routesApi.train({
+      lat1: from.latitude,
+      lon1: from.longitude,
+      lat2: to.latitude,
+      lon2: to.longitude,
+      country1: from.country || undefined,
+      country2: to.country || undefined,
+    })
+    if (Array.isArray(geometry) && geometry.length > 1) {
+      return geometry
+    }
+  } catch {}
   return null
 }
 

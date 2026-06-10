@@ -307,6 +307,9 @@ export default function EditPointPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (saving) {
+      return
+    }
     if (isSnapMethod && !trainStation) {
       toast.error(`Choose a ${SNAP_METHOD_LABELS[travelMethod]} from search or by clicking near one on the map`)
       return

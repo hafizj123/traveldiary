@@ -294,6 +294,9 @@ export default function AddPointPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (loading) {
+      return
+    }
     if (isSnapMethod && !trainStation) {
       toast.error(`Choose a ${SNAP_METHOD_LABELS[form.travel_method]} from search or by clicking near one on the map`)
       return

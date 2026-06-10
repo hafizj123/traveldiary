@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from ..database import get_db
 from ..services.ferry_route_service import fetch_and_cache_ferry_route, get_ferry_route_state
 from ..services.place_lookup_service import lookup_nearest_transport_place, reverse_geocode_location
-from ..services.train_route_service import get_train_route_state, lookup_nearest_train_station
+from ..services.train_route_service import fetch_and_cache, get_train_route_state, lookup_nearest_train_station
 
 router = APIRouter(tags=["routes"])
 
@@ -16,9 +17,14 @@ async def get_train_route(
     lon1: float = Query(...),
     lat2: float = Query(...),
     lon2: float = Query(...),
+    country1: Optional[str] = Query(None),
+    country2: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     geometry, status, anchor_start, anchor_end = get_train_route_state(db, lat1, lon1, lat2, lon2)
+    if status == "pending":
+        geometry = await fetch_and_cache(db, lat1, lon1, lat2, lon2, country1, country2)
+        geometry, status, anchor_start, anchor_end = get_train_route_state(db, lat1, lon1, lat2, lon2)
     return {
         "geometry": geometry,
         "status": status,

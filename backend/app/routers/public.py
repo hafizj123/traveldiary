@@ -9,7 +9,7 @@ from ..models.travel_segment import TravelSegment
 from ..schemas.trip import TripResponse
 from ..schemas.timeline_point import TimelinePointResponse
 from ..schemas.travel_segment import TravelSegmentResponse
-from ..services.train_route_service import get_train_route_state
+from ..services.train_route_service import get_train_route_provider, get_train_route_state
 
 router = APIRouter(prefix="/u", tags=["public"])
 
@@ -18,6 +18,7 @@ def _public_segment_response(db: Session, seg: TravelSegment):
     payload = TravelSegmentResponse.model_validate(seg).model_dump()
     payload["route_geometry"] = None
     payload["route_status"] = None
+    payload["route_provider"] = None
     payload["route_anchor_start"] = None
     payload["route_anchor_end"] = None
 
@@ -41,6 +42,13 @@ def _public_segment_response(db: Session, seg: TravelSegment):
     )
     payload["route_geometry"] = geometry
     payload["route_status"] = status
+    payload["route_provider"] = get_train_route_provider(
+        db,
+        from_pt.latitude,
+        from_pt.longitude,
+        to_pt.latitude,
+        to_pt.longitude,
+    )
     payload["route_anchor_start"] = anchor_start
     payload["route_anchor_end"] = anchor_end
     return payload

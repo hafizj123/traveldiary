@@ -73,6 +73,22 @@ SEARCH_CONFIG = {
 }
 
 
+def _preferred_english_name(tags: dict, fallback: str) -> str:
+    return (
+        tags.get("name:en")
+        or tags.get("official_name:en")
+        or tags.get("alt_name:en")
+        or tags.get("short_name:en")
+        or tags.get("int_name")
+        or tags.get("official_name")
+        or tags.get("short_name")
+        or tags.get("iata")
+        or tags.get("icao")
+        or tags.get("name")
+        or fallback
+    )
+
+
 def _cache_key(prefix: str, lat: float, lon: float, method: Optional[str] = None) -> str:
     suffix = f"|{method}" if method else ""
     return f"{prefix}|{lat:.4f},{lon:.4f}{suffix}"
@@ -198,12 +214,7 @@ async def lookup_nearest_transport_place(lat: float, lon: float, method: str) ->
         tags = element.get("tags") or {}
         best_distance = distance
         best_place = {
-            "place_name": tags.get("name")
-            or tags.get("official_name")
-            or tags.get("short_name")
-            or tags.get("iata")
-            or tags.get("icao")
-            or config["label"],
+            "place_name": _preferred_english_name(tags, config["label"]),
             "city": tags.get("addr:city") or tags.get("is_in:city") or "",
             "country": tags.get("addr:country") or tags.get("is_in:country") or "",
             "latitude": float(place_lat),

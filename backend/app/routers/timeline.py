@@ -100,6 +100,8 @@ async def add_point(
             from_pt.longitude,
             to_pt.latitude,
             to_pt.longitude,
+            from_pt.country,
+            to_pt.country,
         )
     return point
 
@@ -186,6 +188,8 @@ async def update_point(
             from_pt.longitude,
             to_pt.latitude,
             to_pt.longitude,
+            from_pt.country,
+            to_pt.country,
         )
     return point
 
@@ -273,6 +277,8 @@ async def delete_point(
             from_pt.longitude,
             to_pt.latitude,
             to_pt.longitude,
+            from_pt.country,
+            to_pt.country,
         )
 
     if image_url:
