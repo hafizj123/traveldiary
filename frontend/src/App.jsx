@@ -13,6 +13,10 @@ import EditTripPage     from './pages/trips/EditTripPage'
 import TripDetailPage   from './pages/trips/TripDetailPage'
 import AddPointPage     from './pages/points/AddPointPage'
 import EditPointPage    from './pages/points/EditPointPage'
+import SavedRoutesPage  from './pages/routes/SavedRoutesPage'
+import CountryRoutePoliciesPage from './pages/routes/CountryRoutePoliciesPage'
+import GeoJsonImportPage from './pages/routes/GeoJsonImportPage'
+import AdminToolsPage from './pages/routes/AdminToolsPage'
 import PublicProfilePage from './pages/public/PublicProfilePage'
 import PublicTripPage   from './pages/public/PublicTripPage'
 
@@ -38,6 +42,10 @@ export default function App() {
             <Route path="/trips/:tripId/edit"                   element={<EditTripPage />} />
             <Route path="/trips/:tripId/points/new"             element={<AddPointPage />} />
             <Route path="/trips/:tripId/points/:pointId/edit"   element={<EditPointPage />} />
+            <Route path="/saved-routes"                         element={<SavedRoutesPage />} />
+            <Route path="/country-route-policies"               element={<CountryRoutePoliciesPage />} />
+            <Route path="/geojson-imports"                      element={<GeoJsonImportPage />} />
+            <Route path="/admin-tools"                          element={<AdminToolsPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

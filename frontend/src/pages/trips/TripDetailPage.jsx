@@ -31,6 +31,7 @@ export default function TripDetailPage() {
   const [points, setPoints]     = useState([])
   const [segments, setSegments] = useState([])
   const [loading, setLoading]   = useState(true)
+  const [deletingLocation, setDeletingLocation] = useState(false)
   const [tab, setTab]           = useState(searchParams.get('tab') || 'map')
   const [mapFocusTarget, setMapFocusTarget] = useState(() => {
     const lat = searchParams.get('focusLat')
@@ -43,7 +44,8 @@ export default function TripDetailPage() {
     }
   })
 
-  const load = async () => {
+  const load = async ({ showLoading = false } = {}) => {
+    if (showLoading) setLoading(true)
     try {
       const [t, p, s] = await Promise.all([
         tripsApi.get(tripId),
@@ -98,9 +100,14 @@ export default function TripDetailPage() {
 
   const handleDeletePoint = async (pointId) => {
     if (!confirm('Delete this location?')) return
-    await timelineApi.deletePoint(pointId)
-    toast.success('Location removed')
-    load()
+    setDeletingLocation(true)
+    try {
+      await timelineApi.deletePoint(pointId)
+      await load()
+      toast.success('Location removed')
+    } finally {
+      setDeletingLocation(false)
+    }
   }
 
   const handleMapDeletePoint = async (point) => {
@@ -111,19 +118,24 @@ export default function TripDetailPage() {
       ? points[currentIndex - 1]
       : (currentIndex >= 0 && currentIndex < points.length - 1 ? points[currentIndex + 1] : null)
 
-    await timelineApi.deletePoint(point.id)
-    toast.success('Location removed')
-    updateViewParams(
-      'map',
-      fallbackPoint?.latitude && fallbackPoint?.longitude
-        ? {
-            lat: Number(fallbackPoint.latitude),
-            lng: Number(fallbackPoint.longitude),
-            zoom: 9,
-          }
-        : null
-    )
-    load()
+    setDeletingLocation(true)
+    try {
+      await timelineApi.deletePoint(point.id)
+      updateViewParams(
+        'map',
+        fallbackPoint?.latitude && fallbackPoint?.longitude
+          ? {
+              lat: Number(fallbackPoint.latitude),
+              lng: Number(fallbackPoint.longitude),
+              zoom: 9,
+            }
+          : null
+      )
+      await load()
+      toast.success('Location removed')
+    } finally {
+      setDeletingLocation(false)
+    }
   }
 
   const handleMapEditPoint = (point) => {
@@ -139,7 +151,18 @@ export default function TripDetailPage() {
 
   return (
     <Layout>
-      <div className="space-y-6">
+      <div className="space-y-5">
+        {deletingLocation && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/35 backdrop-blur-[1px]">
+            <div className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 shadow-xl">
+              <LoadingSpinner size="md" />
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Deleting location...</p>
+                <p className="text-xs text-slate-500">Updating map and timeline</p>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div>
           <Link to="/trips" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-primary-600 mb-3">
@@ -147,7 +170,7 @@ export default function TripDetailPage() {
           </Link>
 
           <div
-            className="relative rounded-2xl overflow-hidden h-52 bg-gradient-to-br from-primary-600 to-sky-500"
+            className="relative h-44 overflow-hidden rounded-2xl bg-gradient-to-br from-primary-600 to-sky-500 lg:h-48"
             style={trip.cover_image_url ? { backgroundImage: `url(${trip.cover_image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
           >
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -211,7 +234,7 @@ export default function TripDetailPage() {
 
         {/* Tab content */}
         {tab === 'map' && (
-          <div className="h-[500px] rounded-xl overflow-hidden border border-slate-100 shadow-sm">
+          <div className="h-[54vh] min-h-[360px] rounded-xl overflow-hidden border border-slate-100 shadow-sm lg:h-[60vh] 2xl:h-[calc(100vh-21rem)]">
             <TripMap
               points={points}
               segments={segments}
@@ -223,15 +246,19 @@ export default function TripDetailPage() {
         )}
 
         {tab === 'timeline' && (
-          <TimelineView points={points} segments={segments} tripId={tripId} onDelete={handleDeletePoint} />
+          <div className="2xl:max-h-[calc(100vh-21rem)] 2xl:overflow-y-auto 2xl:pr-1">
+            <TimelineView points={points} segments={segments} tripId={tripId} onDelete={handleDeletePoint} />
+          </div>
         )}
 
         {tab === 'gallery' && (
-          <GalleryView points={points} />
+          <div className="2xl:max-h-[calc(100vh-21rem)] 2xl:overflow-y-auto 2xl:pr-1">
+            <GalleryView points={points} />
+          </div>
         )}
 
         {tab === 'routes' && (
-          <div className="bg-white rounded-xl border border-slate-100 shadow-sm divide-y divide-slate-50">
+          <div className="divide-y divide-slate-50 rounded-xl border border-slate-100 bg-white shadow-sm 2xl:max-h-[calc(100vh-21rem)] 2xl:overflow-y-auto">
             {segments.length === 0 ? (
               <div className="py-12 text-center text-slate-400">No routes recorded yet.</div>
             ) : (

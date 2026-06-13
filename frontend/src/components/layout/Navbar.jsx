@@ -1,9 +1,11 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
-  Globe, LayoutDashboard, Map, LogOut, Menu, X, User,
+  Globe, LayoutDashboard, Map, LogOut, Menu, X, User, Database, Download, Settings2, Wrench,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
+
+const ADMIN_EMAIL = 'hafiz.shadowfiend@gmail.com'
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
@@ -15,6 +17,16 @@ export default function Navbar() {
   const navigate = useNavigate()
   const location = useLocation()
   const [open, setOpen] = useState(false)
+  const isAdminViewer = (user?.email || '').toLowerCase() === ADMIN_EMAIL
+  const navItems = isAdminViewer
+    ? [
+        ...NAV,
+        { to: '/admin-tools', label: 'Admin Tools', Icon: Wrench },
+        { to: '/saved-routes', label: 'Saved Routes', Icon: Database },
+        { to: '/country-route-policies', label: 'Route Policies', Icon: Settings2 },
+        { to: '/geojson-imports', label: 'GeoJSON Imports', Icon: Download },
+      ]
+    : NAV
 
   const handleLogout = () => {
     logout()
@@ -33,7 +45,7 @@ export default function Navbar() {
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1">
-            {NAV.map(({ to, label, Icon }) => (
+            {navItems.map(({ to, label, Icon }) => (
               <Link
                 key={to}
                 to={to}
@@ -73,7 +85,7 @@ export default function Navbar() {
       {/* Mobile menu */}
       {open && (
         <div className="md:hidden border-t border-slate-100 bg-white px-4 pb-4 pt-2 space-y-1">
-          {NAV.map(({ to, label, Icon }) => (
+          {navItems.map(({ to, label, Icon }) => (
             <Link
               key={to}
               to={to}

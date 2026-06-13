@@ -16,7 +16,7 @@ export default function TripsPage() {
 
   return (
     <Layout>
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-slate-800">My Trips</h1>
           <Link
@@ -42,8 +42,8 @@ export default function TripsPage() {
             </Link>
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {trips.map(t => <TripCard key={t.id} trip={t} />)}
+          <div className="grid gap-4 sm:grid-cols-2 2xl:max-h-[calc(100vh-14rem)] 2xl:auto-rows-min 2xl:overflow-y-auto 2xl:pr-1 2xl:grid-cols-3">
+            {trips.map((t) => <TripCard key={t.id} trip={t} />)}
           </div>
         )}
       </div>

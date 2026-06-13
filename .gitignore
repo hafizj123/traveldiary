@@ -1,0 +1,16 @@
+.venv/
+backend/.venv/
+backend/gpkg/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+backend/.env
+*.tgz
+*.log
+.DS_Store
+github-actions-deploy
+github-actions-deploy.pub

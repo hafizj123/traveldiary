@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
+import { getLocationResultIcon, getLocationResultKind } from './locationResultIcon'
+import LoadingSpinner from './LoadingSpinner'
 
 export default function SearchableLocationInput({
   label,
@@ -11,6 +13,7 @@ export default function SearchableLocationInput({
   required = false,
   disabled = false,
   minChars = 2,
+  minLoadingMs = 0,
 }) {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -42,9 +45,14 @@ export default function SearchableLocationInput({
     }
 
     debounceRef.current = setTimeout(async () => {
+      const startedAt = Date.now()
       setLoading(true)
       try {
         const nextResults = await searchFn(nextValue)
+        const remainingMs = Math.max(0, minLoadingMs - (Date.now() - startedAt))
+        if (remainingMs > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, remainingMs))
+        }
         setResults(nextResults)
         setOpen(nextResults.length > 0)
       } catch {
@@ -81,31 +89,42 @@ export default function SearchableLocationInput({
           placeholder={placeholder}
           required={required}
           disabled={disabled}
-          className="w-full pl-9 pr-9 py-2 text-base sm:text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-slate-50 disabled:cursor-not-allowed"
+          autoComplete="off"
+          className="w-full pl-9 pr-9 py-2 text-base sm:text-sm text-slate-800 caret-slate-800 placeholder:text-slate-400 selection:bg-primary-100 selection:text-slate-900 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+          style={{
+            color: '#1e293b',
+            WebkitTextFillColor: '#1e293b',
+            caretColor: '#1e293b',
+          }}
         />
         {loading && (
-          <span
-            aria-hidden="true"
-            className="absolute right-3 top-1/2 -translate-y-1/2 block h-4 w-4 rounded-full border-2 border-slate-200 border-t-primary-500 animate-spin"
-          />
+          <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+            <LoadingSpinner size="sm" className="block" />
+          </div>
         )}
       </div>
 
       {open && results.length > 0 && (
         <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
-          {results.map((result) => (
-            <button
-              key={result.id}
-              type="button"
-              onClick={() => handleSelect(result)}
-              className="w-full px-4 py-3 hover:bg-primary-50 text-left border-b border-slate-50 last:border-0 transition-colors"
-            >
-              <p className="text-sm font-medium text-slate-700 truncate">{result.label}</p>
-              {result.subtitle && (
-                <p className="text-xs text-slate-400 truncate">{result.subtitle}</p>
-              )}
-            </button>
-          ))}
+          {results.map((result) => {
+            const Icon = getLocationResultIcon(getLocationResultKind(result))
+            return (
+              <button
+                key={result.id}
+                type="button"
+                onClick={() => handleSelect(result)}
+                className="w-full flex items-start gap-3 px-4 py-3 text-left text-slate-800 hover:bg-primary-50 active:bg-primary-100 border-b border-slate-50 last:border-0 transition-colors"
+              >
+                <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary-400" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-700 truncate">{result.label}</p>
+                  {result.subtitle && (
+                    <p className="text-xs text-slate-400 truncate">{result.subtitle}</p>
+                  )}
+                </div>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

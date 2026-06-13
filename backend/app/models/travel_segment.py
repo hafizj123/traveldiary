@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
 
-TRAVEL_METHODS = ["flight", "train", "car", "bus", "walk", "ferry", "other"]
+TRAVEL_METHODS = ["flight", "train", "car", "bus", "walk", "ferry", "excursion", "other"]
 
 
 class TravelSegment(Base):

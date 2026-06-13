@@ -29,3 +29,18 @@
   height: 100%;
   z-index: 0;
 }
+
+@keyframes loading-spinner-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-spinner {
+  animation: loading-spinner-rotate 0.9s linear infinite;
+  transform-origin: center;
+}

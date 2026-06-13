@@ -11,16 +11,38 @@ import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import MapPicker from '../../components/map/MapPicker'
 import PlaceSearch from '../../components/ui/PlaceSearch'
+import RouteCheckConfirmModal from '../../components/ui/RouteCheckConfirmModal'
 import SearchableLocationInput from '../../components/ui/SearchableLocationInput'
+import LoadingSpinner from '../../components/ui/LoadingSpinner'
 import { searchCities, searchCountries } from '../../components/ui/locationSearch'
-import { TRAVEL_METHODS } from '../../utils/travelIcons'
-import { getVisitDateRangeError, isVisitDateWithinTripRange } from '../../utils/visitDate'
+import { checkTransportRouteBeforeSave } from '../../utils/transportRouteCheck'
+import { getVisibleMethods } from '../../utils/travelIcons'
+import { getVisitDateRangeError } from '../../utils/visitDate'
 import toast from 'react-hot-toast'
 
 const SNAP_METHOD_LABELS = {
   train: 'train station',
   flight: 'airport',
   ferry: 'ferry terminal',
+  excursion: 'lift station',
+}
+
+function SubmitOverlay({ visible, label, detail }) {
+  if (!visible) return null
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/45 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
+        <div className="mx-auto mb-4 flex justify-center">
+          <LoadingSpinner size="lg" />
+        </div>
+        <h2 className="text-lg font-semibold text-slate-800">{label}</h2>
+        <p className="mt-2 text-sm text-slate-500">
+          {detail}
+        </p>
+      </div>
+    </div>
+  )
 }
 
 export default function AddPointPage() {
@@ -35,16 +57,41 @@ export default function AddPointPage() {
     image_url: '', travel_method: 'car',
   })
   const [loading, setLoading] = useState(false)
+  const [loadingLabel, setLoadingLabel] = useState('Adding location...')
+  const [loadingDetail, setLoadingDetail] = useState('Please wait while the location is being added. Do not cancel, refresh, or close this tab.')
   const [uploading, setUploading] = useState(false)
   const [snappingTrainStation, setSnappingTrainStation] = useState(false)
   const [preview, setPreview] = useState(null)
   const [mapFocusTarget, setMapFocusTarget] = useState(null)
   const [trainStation, setTrainStation] = useState(null)
   const [latestPointFocus, setLatestPointFocus] = useState(null)
+  const [latestPointCountry, setLatestPointCountry] = useState('')
+  const [previousPoint, setPreviousPoint] = useState(null)
+  const [visitedCountries, setVisitedCountries] = useState([])
+  const [routeConfirm, setRouteConfirm] = useState({ open: false, message: '', canConfirm: true, title: 'No Route Found' })
 
   const uploadedUrlRef = useRef(null)
   const submittedRef = useRef(false)
   const previousTravelMethodRef = useRef('')
+  const routeConfirmResolverRef = useRef(null)
+
+  const searchCountriesWithinTrip = useCallback(async (text) => {
+    const query = text.trim().toLowerCase()
+    const countries = visitedCountries.length > 0
+      ? visitedCountries
+      : (Array.isArray(trip?.planned_countries) ? trip.planned_countries : [])
+    if (countries.length > 0) {
+      return countries
+        .filter((country) => country.toLowerCase().includes(query))
+        .map((country) => ({
+          id: `trip-country-${country}`,
+          label: country,
+          country,
+          subtitle: 'Added to this trip',
+        }))
+    }
+    return searchCountries(text)
+  }, [trip, visitedCountries])
 
   const clearDraftForMethodChange = useCallback(() => {
     if (uploadedUrlRef.current && localStorage.getItem('token')) {
@@ -54,7 +101,7 @@ export default function AddPointPage() {
 
     setForm((current) => ({
       ...current,
-      country: '',
+      // Keep country so the user does not have to re-select it after switching methods.
       city: '',
       place_name: '',
       description: '',
@@ -83,24 +130,90 @@ export default function AddPointPage() {
       timelineApi.listPoints(tripId),
     ]).then(([tripData, points]) => {
       setTrip(tripData)
-      const latestPoint = [...points]
-        .sort((a, b) => b.sequence_no - a.sequence_no)
-        .find((point) => point.latitude && point.longitude)
+      const sortedPoints = [...points].sort((a, b) => b.sequence_no - a.sequence_no)
+      const latestPoint = sortedPoints.find((point) => point.latitude && point.longitude)
+      setPreviousPoint(latestPoint || null)
+      const uniqueCountries = [...new Set(
+        sortedPoints.map((p) => p.country).filter(Boolean)
+      )].sort()
+      setVisitedCountries(uniqueCountries)
       if (latestPoint) {
         setLatestPointFocus({
           lat: Number(latestPoint.latitude),
           lng: Number(latestPoint.longitude),
           zoom: 9,
         })
+        setLatestPointCountry(latestPoint.country || '')
+        setForm((current) => current.visit_date ? current : ({
+          ...current,
+          visit_date: latestPoint.visit_date || tripData?.start_date || '',
+        }))
+      } else if (tripData?.starting_latitude != null && tripData?.starting_longitude != null) {
+        setLatestPointFocus({
+          lat: Number(tripData.starting_latitude),
+          lng: Number(tripData.starting_longitude),
+          zoom: 7,
+        })
+        setLatestPointCountry(tripData.starting_country || '')
+        setForm((current) => current.visit_date ? current : ({
+          ...current,
+          visit_date: tripData?.start_date || '',
+        }))
+      } else if (tripData?.start_date) {
+        setForm((current) => current.visit_date ? current : ({
+          ...current,
+          visit_date: tripData.start_date,
+        }))
       }
     }).catch(() => {})
   }, [tripId])
+
+  useEffect(() => {
+    if (!latestPointCountry) return
+    setForm((current) => current.country ? current : ({ ...current, country: latestPointCountry }))
+  }, [latestPointCountry])
 
   useEffect(() => {
     if (!mapFocusTarget && !form.latitude && !form.longitude && latestPointFocus) {
       setMapFocusTarget(latestPointFocus)
     }
   }, [latestPointFocus, mapFocusTarget, form.latitude, form.longitude])
+
+  useEffect(() => {
+    if (!loading) return undefined
+
+    const handleBeforeUnload = (event) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [loading])
+
+  const requestRouteConfirmation = useCallback((message) => {
+    return new Promise((resolve) => {
+      routeConfirmResolverRef.current = resolve
+      setRouteConfirm({ open: true, message, canConfirm: true, title: 'No Route Found' })
+    })
+  }, [])
+
+  const closeRouteConfirmation = useCallback((accepted) => {
+    setRouteConfirm({ open: false, message: '', canConfirm: true, title: 'No Route Found' })
+    if (routeConfirmResolverRef.current) {
+      routeConfirmResolverRef.current(accepted)
+      routeConfirmResolverRef.current = null
+    }
+  }, [])
+
+  const showBlockedRouteDialog = useCallback((message) => {
+    setRouteConfirm({
+      open: true,
+      message,
+      canConfirm: false,
+      title: 'Cannot Add Route',
+    })
+  }, [])
 
   const set = (key) => (e) => setForm((current) => ({ ...current, [key]: e.target.value }))
 
@@ -123,14 +236,14 @@ export default function AddPointPage() {
   }, [])
 
   const snapToNearestTransportPlace = useCallback(async (lat, lon, method, options = {}) => {
-    const { showSuccess = true } = options
+    const { showSuccess = true, countryHint } = options
     setSnappingTrainStation(true)
     setTrainStation(null)
+    // Clear location fields but preserve country so it survives if snap fails.
     setForm((current) => ({
       ...current,
       place_name: '',
       city: '',
-      country: '',
       latitude: '',
       longitude: '',
     }))
@@ -138,18 +251,39 @@ export default function AddPointPage() {
 
     try {
       const result = method === 'train'
-        ? await routesApi.nearestTrainStation({ lat, lon })
-        : await routesApi.nearestTransportPlace({ lat, lon, method })
+        ? await routesApi.nearestTrainStation({ lat, lon, country: countryHint })
+        : await routesApi.nearestTransportPlace({ lat, lon, method, country: countryHint })
       const station = method === 'train' ? result.station : result.place
       if (!station) {
-        toast.error(`No ${SNAP_METHOD_LABELS[method]} found nearby. Choose closer to one.`)
+        if (countryHint) {
+          // Reverse-geocode the clicked point so we can tell the user which
+          // country they actually clicked in rather than just saying "not found".
+          try {
+            const rev = await routesApi.reverseLocation({ lat, lon })
+            const actualCountry = rev?.location?.country
+            if (actualCountry && actualCountry.toLowerCase() !== countryHint.toLowerCase()) {
+              toast.error(`This location is in ${actualCountry}. Please click within ${countryHint}.`)
+            } else {
+              toast.error(`No ${SNAP_METHOD_LABELS[method]} found in ${countryHint}. Click closer to one.`)
+            }
+          } catch {
+            toast.error(`No ${SNAP_METHOD_LABELS[method]} found in ${countryHint}. Click within the selected country.`)
+          }
+        } else {
+          toast.error(`No ${SNAP_METHOD_LABELS[method]} found nearby. Choose closer to one.`)
+        }
         return false
       }
 
       const normalizedStation = {
         place_name: station.place_name || station.name,
         city: station.city || '',
-        country: station.country || '',
+        // Prefer the countryHint (exact dropdown value) when the snap result's
+        // country matches it case-insensitively — the snap result may return a
+        // lowercased inferred name that won't match a <select> option.
+        country: (countryHint && station.country && station.country.toLowerCase() === countryHint.toLowerCase())
+          ? countryHint
+          : (station.country || countryHint || ''),
         latitude: station.latitude,
         longitude: station.longitude,
       }
@@ -169,7 +303,7 @@ export default function AddPointPage() {
     }
   }, [applyLocationResult])
 
-  const reverseGeocodeMapPick = useCallback(async (lat, lon) => {
+  const reverseGeocodeMapPick = useCallback(async (lat, lon, expectedCountry = null) => {
     setSnappingTrainStation(true)
     setTrainStation(null)
 
@@ -178,6 +312,15 @@ export default function AddPointPage() {
       if (!location) {
         toast.error('Failed to identify this location')
         return false
+      }
+
+      // Reject the pick if a country is selected and the clicked point is outside it.
+      if (expectedCountry && location.country) {
+        const norm = (s) => s.trim().toLowerCase()
+        if (norm(location.country) !== norm(expectedCountry)) {
+          toast.error(`This location is in ${location.country}. Please click within ${expectedCountry}.`)
+          return false
+        }
       }
 
       applyLocationResult({
@@ -267,14 +410,17 @@ export default function AddPointPage() {
 
   const handleMapPick = (lat, lon) => {
     if (isSnapMethod) {
-      snapToNearestTransportPlace(lat, lon, form.travel_method)
+      snapToNearestTransportPlace(lat, lon, form.travel_method, { countryHint: form.country })
       return
     }
 
-    reverseGeocodeMapPick(lat, lon)
+    reverseGeocodeMapPick(lat, lon, form.country || null)
   }
 
-  const dateError = getVisitDateRangeError(form.visit_date, trip)
+  const appendMinVisitDate = previousPoint?.visit_date || trip?.start_date || ''
+  const dateError = getVisitDateRangeError(form.visit_date, trip, {
+    minDate: appendMinVisitDate || undefined,
+  })
 
   const buildReturnUrl = (focusTarget = null) => {
     const returnTo = searchParams.get('returnTo') || 'timeline'
@@ -307,6 +453,38 @@ export default function AddPointPage() {
     }
 
     setLoading(true)
+    setLoadingLabel('Checking route...')
+    setLoadingDetail('Please wait while we validate the route before adding this location. Do not cancel, refresh, or close this tab.')
+
+    if (previousPoint && form.travel_method) {
+      const routeCheck = await checkTransportRouteBeforeSave({
+        method: form.travel_method,
+        fromPoint: previousPoint,
+        toPoint: {
+          latitude: form.latitude,
+          longitude: form.longitude,
+          country: form.country,
+        },
+      })
+      if (routeCheck.behavior === 'block') {
+        setLoading(false)
+        showBlockedRouteDialog(routeCheck.message || 'No route found')
+        return
+      }
+      if (routeCheck.behavior === 'confirm') {
+        setLoading(false)
+        const accepted = await requestRouteConfirmation(routeCheck.message || 'No route found. Continue anyway?')
+        if (!accepted) {
+          return
+        }
+        setLoading(true)
+        setLoadingLabel('Adding location...')
+        setLoadingDetail('Please wait while the location is being added. Do not cancel, refresh, or close this tab.')
+      }
+    }
+
+    setLoadingLabel('Adding location...')
+    setLoadingDetail('Please wait while the location is being added. Do not cancel, refresh, or close this tab.')
     try {
       const payload = {
         country: form.country,
@@ -336,6 +514,16 @@ export default function AddPointPage() {
 
   return (
     <Layout>
+      <SubmitOverlay visible={loading} label={loadingLabel} detail={loadingDetail} />
+      <RouteCheckConfirmModal
+        open={routeConfirm.open}
+        title={routeConfirm.title}
+        message={routeConfirm.message}
+        canConfirm={routeConfirm.canConfirm}
+        onConfirm={() => closeRouteConfirmation(true)}
+        onCancel={() => closeRouteConfirmation(false)}
+        cancelLabel={routeConfirm.canConfirm ? 'Cancel' : 'Okay'}
+      />
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center gap-3">
           <Link to={`/trips/${tripId}`} className="p-2 hover:bg-slate-100 rounded-lg">
@@ -351,14 +539,15 @@ export default function AddPointPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className={`space-y-5 ${loading ? 'pointer-events-none opacity-80' : ''}`}>
           <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 space-y-3">
             <h2 className="font-semibold text-slate-700">How did you get here?</h2>
             <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
-              {TRAVEL_METHODS.map(({ value, label, Icon, color }) => (
+              {getVisibleMethods(trip?.category).map(({ value, label, Icon, color }) => (
                 <button
                   key={value}
                   type="button"
+                  disabled={loading}
                   onClick={() => setForm((current) => ({ ...current, travel_method: current.travel_method === value ? '' : value }))}
                   className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 text-xs font-medium transition-all
                     ${form.travel_method === value
@@ -371,6 +560,11 @@ export default function AddPointPage() {
                 </button>
               ))}
             </div>
+            {form.travel_method === 'excursion' && trip?.category === 'Europe Trip' && (
+              <p className="text-xs text-amber-600">
+                Excursion lift support is available for Europe only for now. Cable car, gondola, and similar lift stations will use the Europe lift dataset when available.
+              </p>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 space-y-3">
@@ -393,7 +587,12 @@ export default function AddPointPage() {
                   <p className="text-xs">JPEG, PNG, WebP, HEIC - max 20 MB</p>
                 </div>
               )}
-              {uploading && <p className="text-primary-500 text-sm mt-2">Uploading...</p>}
+              {uploading && (
+                <p className="mt-2 inline-flex items-center gap-2 text-sm text-primary-500">
+                  <LoadingSpinner size="sm" />
+                  Uploading...
+                </p>
+              )}
             </div>
           </div>
 
@@ -404,35 +603,69 @@ export default function AddPointPage() {
               label="Search place (auto-fill all fields)"
               onSelect={handlePlaceSelect}
               travelMethod={form.travel_method || ''}
+              country={(form.country || latestPointCountry || '').trim()}
+              multiCountry={(trip?.planned_countries?.length ?? 0) > 1}
             />
 
             <div className="border-t border-slate-50 pt-4 grid grid-cols-2 gap-4">
-              <SearchableLocationInput
-                label="Country *"
-                value={form.country}
-                onChange={(value) => setForm((current) => ({ ...current, country: value }))}
-                onSelect={(result) => {
-                  setForm((current) => ({
-                    ...current,
-                    country: result.country || result.label,
-                    city: current.city,
-                  }))
-                  if (isSnapMethod) {
+              {Array.isArray(trip?.planned_countries) && trip.planned_countries.length > 0 ? (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Country *
+                  </label>
+                  <select
+                    value={form.country}
+                    onChange={(e) => {
+                      const newCountry = e.target.value
+                      setForm((current) => ({
+                        ...current,
+                        country: newCountry,
+                        place_name: '',
+                        city: '',
+                        latitude: '',
+                        longitude: '',
+                      }))
+                      setTrainStation(null)
+                      setMapFocusTarget(null)
+                    }}
+                    required
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">Select country</option>
+                    {trip.planned_countries.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <SearchableLocationInput
+                  label="Country *"
+                  value={form.country}
+                  onChange={(value) => setForm((current) => ({ ...current, country: value }))}
+                  onSelect={(result) => {
+                    setForm((current) => ({
+                      ...current,
+                      country: result.country || result.label,
+                      city: current.city,
+                      place_name: '',
+                      latitude: '',
+                      longitude: '',
+                    }))
                     setTrainStation(null)
-                  }
-                  if (result.latitude && result.longitude) {
-                    setMapFocusTarget({
-                      lat: Number(result.latitude),
-                      lng: Number(result.longitude),
-                      zoom: 5,
-                    })
-                  }
-                }}
-                searchFn={searchCountries}
-                required
-                placeholder="Search country"
-                disabled={isSnapMethod}
-              />
+                    setMapFocusTarget(null)
+                    if (result.latitude && result.longitude) {
+                      setMapFocusTarget({
+                        lat: Number(result.latitude),
+                        lng: Number(result.longitude),
+                        zoom: 5,
+                      })
+                    }
+                  }}
+                  searchFn={searchCountriesWithinTrip}
+                  required
+                  placeholder="Search country"
+                />
+              )}
               <SearchableLocationInput
                 label="City"
                 value={form.city}
@@ -462,8 +695,8 @@ export default function AddPointPage() {
             {isSnapMethod && (
               <p className="text-xs text-slate-400 -mt-1">
                 {form.travel_method === 'train'
-                  ? 'Train locations must be selected from train station search or snapped from the map.'
-                  : `This ${form.travel_method} stop should be selected from search or snapped to the nearest ${SNAP_METHOD_LABELS[form.travel_method]}.`}
+                  ? 'Train locations must be selected from train station search or snapped from the map. Changing country resets the selection.'
+                  : `This ${form.travel_method} stop should be selected from search or snapped to the nearest ${SNAP_METHOD_LABELS[form.travel_method]}. Changing country resets the selection.`}
               </p>
             )}
             <Input
@@ -482,19 +715,22 @@ export default function AddPointPage() {
               value={form.visit_date}
               onChange={set('visit_date')}
               required
-              min={trip?.start_date || undefined}
+              min={appendMinVisitDate || undefined}
               max={trip?.end_date || undefined}
             />
 
             {dateError ? (
               <p className="text-xs text-red-500 -mt-2">{dateError}</p>
             ) : (
-              trip?.start_date && trip?.end_date && (
+              appendMinVisitDate && trip?.end_date && (
                 <p className="text-xs text-slate-400 -mt-2">
-                  Only dates within the trip range ({trip.start_date} to {trip.end_date}) are allowed
+                  New locations can use dates from {appendMinVisitDate} to {trip.end_date}. Earlier dates belong to already-added locations.
                 </p>
               )
             )}
+            <p className="text-xs text-amber-600 -mt-1">
+              Choose the visit date carefully. The timeline follows date order, so using the wrong date can change or reverse the trip sequence.
+            </p>
 
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-slate-700">Description</label>
@@ -556,14 +792,21 @@ export default function AddPointPage() {
             <Button
               type="submit"
               loading={loading}
-              disabled={uploading || snappingTrainStation || (isSnapMethod && !trainStation)}
+              disabled={loading || uploading || snappingTrainStation || (isSnapMethod && !trainStation)}
               className="flex-1"
               size="lg"
             >
               Add location
             </Button>
-            <Link to={`/trips/${tripId}`}>
-              <Button type="button" variant="secondary" size="lg">Cancel</Button>
+            <Link
+              to={`/trips/${tripId}`}
+              onClick={(event) => {
+                if (loading) event.preventDefault()
+              }}
+              className={loading ? 'pointer-events-none' : ''}
+              aria-disabled={loading}
+            >
+              <Button type="button" variant="secondary" size="lg" disabled={loading}>Cancel</Button>
             </Link>
           </div>
         </form>

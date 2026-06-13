@@ -5,6 +5,7 @@ import { Edit2, Trash2 } from 'lucide-react'
 import { routesApi } from '../../api/routes'
 import { getMethod } from '../../utils/travelIcons'
 import { fmtDate } from '../../utils/formatDate'
+import { DEFAULT_MAP_PROPS, DEFAULT_TILE_PROPS } from './mapConfig'
 
 // ─── Pin icon ─────────────────────────────────────────────────────────────────
 function createPin(seq, color = '#4f46e5') {
@@ -29,7 +30,7 @@ function FitBounds({ points }) {
 }
 
 // ─── Persistent route cache (survives refreshes via localStorage) ─────────────
-const LS_KEY = 'td_route_cache_v10'
+const LS_KEY = 'td_route_cache_v11'
 const _routeCache = new Map(
   (() => { try { return Object.entries(JSON.parse(localStorage.getItem(LS_KEY) || '{}')) } catch { return [] } })()
 )
@@ -42,6 +43,71 @@ function persistCache() {
     _routeCache.forEach((v, k) => { obj[k] = v })
     localStorage.setItem(LS_KEY, JSON.stringify(obj))
   } catch {}
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) *
+      Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(a))
+}
+
+function polylineLengthMeters(points) {
+  if (!Array.isArray(points) || points.length < 2) return 0
+  let total = 0
+  for (let i = 1; i < points.length; i++) {
+    total += haversineMeters(
+      points[i - 1][0],
+      points[i - 1][1],
+      points[i][0],
+      points[i][1],
+    )
+  }
+  return total
+}
+
+function shouldFallbackShortWalkRoute(route, from, to) {
+  if (!Array.isArray(route) || route.length < 2) return true
+
+  const straightDistance = haversineMeters(
+    from.latitude,
+    from.longitude,
+    to.latitude,
+    to.longitude,
+  )
+  const routedDistance = polylineLengthMeters(route)
+  const startSnapDistance = haversineMeters(
+    from.latitude,
+    from.longitude,
+    route[0][0],
+    route[0][1],
+  )
+  const endSnapDistance = haversineMeters(
+    to.latitude,
+    to.longitude,
+    route[route.length - 1][0],
+    route[route.length - 1][1],
+  )
+
+  if (straightDistance <= 250) {
+    return (
+      routedDistance > 450
+      || routedDistance > straightDistance * 2.2
+      || startSnapDistance > 80
+      || endSnapDistance > 80
+    )
+  }
+
+  if (straightDistance <= 800) {
+    return routedDistance > straightDistance * 1.8
+  }
+
+  return false
 }
 
 // ─── Routing helpers ──────────────────────────────────────────────────────────
@@ -186,6 +252,9 @@ async function computeRoute(from, to, seg) {
       result = r || straight
       break
     }
+    case 'excursion':
+      result = straight
+      break
     case 'car':
     case 'bus': {
       const r = await fetchOsrmRoute(from.latitude, from.longitude, to.latitude, to.longitude, 'driving')
@@ -194,7 +263,7 @@ async function computeRoute(from, to, seg) {
     }
     case 'walk': {
       const r = await fetchOsrmRoute(from.latitude, from.longitude, to.latitude, to.longitude, 'foot')
-      result = r || straight
+      result = (r && !shouldFallbackShortWalkRoute(r, from, to)) ? r : straight
       break
     }
     default:
@@ -270,10 +339,16 @@ export default function TripMap({
   const center = [validPoints[0].latitude, validPoints[0].longitude]
 
   return (
-    <MapContainer center={center} zoom={5} className="w-full h-full rounded-xl">
+    <MapContainer
+      center={center}
+      zoom={5}
+      className="w-full h-full rounded-xl"
+      {...DEFAULT_MAP_PROPS}
+    >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        {...DEFAULT_TILE_PROPS}
       />
       <FitBounds points={validPoints} />
       <FlyToFocus target={focusTarget} />

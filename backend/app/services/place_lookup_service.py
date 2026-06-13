@@ -6,9 +6,23 @@ from typing import Optional
 
 import httpx
 
+from .geojson_transport_service import (
+    _country_bbox,
+    _europe_country_bbox,
+    country_has_airport_dataset,
+    lookup_nearest_transport_place_from_geojson,
+    search_transport_places_from_geojson,
+)
+from .airport_search_service import nearest_airport, search_airports
+
 logger = logging.getLogger(__name__)
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_FALLBACK_URLS = [
+    OVERPASS_URL,
+    "https://overpass.private.coffee/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+]
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 
 REVERSE_CACHE: dict[str, Optional[dict]] = {}
@@ -70,6 +84,15 @@ SEARCH_CONFIG = {
             'way(around:{radius},{lat},{lon})["public_transport"~"platform|stop_position"];',
         ],
     },
+    "excursion": {
+        "label": "Lift station",
+        "radius_meters": 3000,
+        "queries": [
+            'node(around:{radius},{lat},{lon})["aerialway"~"station|cable_car|gondola|chair_lift|mixed_lift|drag_lift"];',
+            'way(around:{radius},{lat},{lon})["aerialway"~"station|cable_car|gondola|chair_lift|mixed_lift|drag_lift"];',
+            'relation(around:{radius},{lat},{lon})["aerialway"~"station|cable_car|gondola|chair_lift|mixed_lift|drag_lift"];',
+        ],
+    },
 }
 
 
@@ -89,9 +112,10 @@ def _preferred_english_name(tags: dict, fallback: str) -> str:
     )
 
 
-def _cache_key(prefix: str, lat: float, lon: float, method: Optional[str] = None) -> str:
+def _cache_key(prefix: str, lat: float, lon: float, method: Optional[str] = None, country_hint: Optional[str] = None) -> str:
     suffix = f"|{method}" if method else ""
-    return f"{prefix}|{lat:.4f},{lon:.4f}{suffix}"
+    country_suffix = f"|{country_hint.lower().strip()}" if country_hint else ""
+    return f"{prefix}|{lat:.4f},{lon:.4f}{suffix}{country_suffix}"
 
 
 def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -161,14 +185,73 @@ async def reverse_geocode_location(lat: float, lon: float) -> Optional[dict]:
     return result
 
 
-async def lookup_nearest_transport_place(lat: float, lon: float, method: str) -> Optional[dict]:
+async def lookup_nearest_transport_place(lat: float, lon: float, method: str, *, country_hint: Optional[str] = None) -> Optional[dict]:
+    # Airports: try per-country GeoJSON datasets first (authoritative, no bbox overlap issue),
+    # then fall back to the global airport.geojson with bbox + reverse-geocode verification.
+    if method == "flight":
+        cache_key = _cache_key("nearest", lat, lon, method, country_hint or "")
+        if cache_key in NEAREST_PLACE_CACHE:
+            return NEAREST_PLACE_CACHE[cache_key]
+
+        # 1. Try per-country airport file (e.g. vietnam_airport_station.geojson)
+        geojson_match = lookup_nearest_transport_place_from_geojson(
+            lat, lon, method,
+            country_hint=country_hint,
+            max_distance_meters=80_000,  # 80 km snap radius for airports
+        )
+        if geojson_match:
+            NEAREST_PLACE_CACHE[cache_key] = geojson_match
+            return geojson_match
+
+        # 2. Fall back to global airport.geojson ONLY if no per-country file exists.
+        # If a per-country file exists and returned nothing, that means no airport is
+        # nearby in that country — don't leak results from the global file.
+        if country_hint and country_has_airport_dataset(country_hint):
+            NEAREST_PLACE_CACHE[cache_key] = None
+            return None
+        bbox = _country_bbox(country_hint) if country_hint else None
+        result = nearest_airport(lat, lon, country_bbox=bbox)
+        if result and country_hint:
+            rev = await reverse_geocode_location(result["latitude"], result["longitude"])
+            rev_country = (rev or {}).get("country", "")
+            if rev_country and rev_country.strip().lower() != country_hint.strip().lower():
+                logger.info(
+                    "airport_search: snap rejected %s (rev_country=%r, wanted=%r)",
+                    result.get("place_name"), rev_country, country_hint,
+                )
+                result = None
+            elif rev_country:
+                result = {
+                    **result,
+                    "country": rev_country,
+                }
+        NEAREST_PLACE_CACHE[cache_key] = result
+        return result
+
     config = SEARCH_CONFIG.get(method)
     if not config:
         return None
 
-    cache_key = _cache_key("nearest", lat, lon, method)
+    cache_key = _cache_key("nearest", lat, lon, method, country_hint or "")
     if cache_key in NEAREST_PLACE_CACHE:
         return NEAREST_PLACE_CACHE[cache_key]
+
+    geojson_match = lookup_nearest_transport_place_from_geojson(
+        lat,
+        lon,
+        method,
+        country_hint=country_hint,
+        max_distance_meters=float(config["radius_meters"]),
+    )
+    if geojson_match:
+        NEAREST_PLACE_CACHE[cache_key] = geojson_match
+        return geojson_match
+
+    # When a country filter is active, don't fall back to the unfiltered Overpass
+    # API — it has no spatial filter and would return terminals from neighbouring countries.
+    if country_hint:
+        NEAREST_PLACE_CACHE[cache_key] = None
+        return None
 
     query_parts = "\n".join(
         item.format(radius=config["radius_meters"], lat=lat, lon=lon)
@@ -182,20 +265,26 @@ async def lookup_nearest_transport_place(lat: float, lon: float, method: str) ->
     out center tags;
     """
 
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.post(
-                OVERPASS_URL,
-                data={"data": query},
-                headers={
-                    "Accept": "application/json",
-                    "User-Agent": "traveldiary/1.0",
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception as exc:
-        logger.warning("place_lookup: nearest %s lookup failed: %s", method, exc)
+    data = None
+    last_exc: Optional[Exception] = None
+    for endpoint in OVERPASS_FALLBACK_URLS:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(
+                    endpoint,
+                    data={"data": query},
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "traveldiary/1.0",
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                break
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("place_lookup: nearest %s lookup failed via %s: %s", method, endpoint, exc)
+    if data is None:
         NEAREST_PLACE_CACHE[cache_key] = None
         return None
 
@@ -220,6 +309,7 @@ async def lookup_nearest_transport_place(lat: float, lon: float, method: str) ->
             "latitude": float(place_lat),
             "longitude": float(place_lon),
             "distance_meters": round(distance, 1),
+            "transport_mode": method,
         }
 
     if best_place and (not best_place["city"] or not best_place["country"]):
@@ -230,3 +320,33 @@ async def lookup_nearest_transport_place(lat: float, lon: float, method: str) ->
 
     NEAREST_PLACE_CACHE[cache_key] = best_place
     return best_place
+
+
+def search_transport_places(query: str, method: str, country: Optional[str] = None, limit: int = 10) -> list[dict]:
+    if method == "flight":
+        # 1. Try per-country airport GeoJSON datasets first (exact country boundary).
+        geojson_results = search_transport_places_from_geojson(
+            query, method, country_hint=country, limit=limit
+        )
+        if geojson_results:
+            for r in geojson_results:
+                r.setdefault("transport_mode", "flight")
+            return geojson_results
+        # 2. Fall back to global airport.geojson ONLY if no per-country file exists.
+        if country and country_has_airport_dataset(country):
+            return []  # per-country file is authoritative; no cross-border leakage
+        bbox = _country_bbox(country) if country else None
+        return search_airports(query, country_hint=country, country_bbox=bbox, limit=limit)
+    results = search_transport_places_from_geojson(
+        query,
+        method,
+        country_hint=country,
+        limit=limit,
+    )
+    for result in results:
+        result.setdefault("transport_mode", method)
+    return results
+
+
+def reset_place_lookup_caches() -> None:
+    NEAREST_PLACE_CACHE.clear()

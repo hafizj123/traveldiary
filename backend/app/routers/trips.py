@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from typing import Optional
 
 from ..database import get_db
 from ..models.trip import Trip
@@ -9,8 +10,55 @@ from ..schemas.trip import TripCreate, TripUpdate, TripResponse
 from ..utils.deps import get_current_user
 from ..models.user import User
 from ..services.r2_service import delete_image
+from ..services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/trips", tags=["trips"])
+
+
+def _validate_trip_dates(start_date, end_date) -> None:
+    if not start_date:
+        raise HTTPException(400, "Start date is required")
+    if not end_date:
+        raise HTTPException(400, "End date is required")
+    if end_date < start_date:
+        raise HTTPException(400, "End date must be on or after start date")
+
+
+def _validate_trip_starting_place(place_name, country, latitude, longitude) -> None:
+    if not str(place_name or "").strip():
+        raise HTTPException(400, "Starting place is required")
+    if not str(country or "").strip():
+        raise HTTPException(400, "Starting country is required")
+    if latitude is None or longitude is None:
+        raise HTTPException(400, "Starting location coordinates are required")
+
+
+def _normalize_planned_countries(planned_countries, starting_country: Optional[str]) -> list[str]:
+    values = list(planned_countries or [])
+    if starting_country:
+        values.append(starting_country)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = " ".join(str(value or "").strip().split())
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(text)
+    return normalized
+
+
+def _first_trip_point(db: Session, trip_id: int) -> Optional[TimelinePoint]:
+    return (
+        db.query(TimelinePoint)
+        .filter(TimelinePoint.trip_id == trip_id)
+        .order_by(TimelinePoint.sequence_no, TimelinePoint.id)
+        .first()
+    )
 
 
 @router.post("", response_model=TripResponse, status_code=201)
@@ -19,8 +67,46 @@ def create_trip(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    trip = Trip(**data.model_dump(), user_id=user.id)
+    _validate_trip_dates(data.start_date, data.end_date)
+    _validate_trip_starting_place(
+        data.starting_place_name,
+        data.starting_country,
+        data.starting_latitude,
+        data.starting_longitude,
+    )
+    planned_countries = _normalize_planned_countries(data.planned_countries, data.starting_country)
+    if not planned_countries:
+        raise HTTPException(400, "At least one planned country is required")
+
+    trip_payload = data.model_dump()
+    trip_payload["planned_countries"] = planned_countries
+    trip = Trip(**trip_payload, user_id=user.id)
     db.add(trip)
+    db.flush()
+
+    db.add(
+        TimelinePoint(
+            trip_id=trip.id,
+            country=data.starting_country.strip(),
+            city=(data.starting_city or "").strip() or None,
+            place_name=data.starting_place_name.strip(),
+            description=None,
+            visit_date=data.start_date,
+            latitude=data.starting_latitude,
+            longitude=data.starting_longitude,
+            image_url=None,
+            sequence_no=0,
+            weather_data=None,
+        )
+    )
+    log_audit_event(
+        db,
+        user=user,
+        action="create_trip",
+        resource_type="trip",
+        resource_id=str(trip.id),
+        details={"title": trip.title, "starting_country": trip.starting_country},
+    )
     db.commit()
     db.refresh(trip)
     return trip
@@ -70,8 +156,40 @@ def update_trip(
     trip = db.query(Trip).filter(Trip.id == trip_id, Trip.user_id == user.id).first()
     if not trip:
         raise HTTPException(404, "Trip not found")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    next_start_date = updates.get("start_date", trip.start_date)
+    next_end_date = updates.get("end_date", trip.end_date)
+    _validate_trip_dates(next_start_date, next_end_date)
+    next_place_name = updates.get("starting_place_name", trip.starting_place_name)
+    next_country = updates.get("starting_country", trip.starting_country)
+    next_latitude = updates.get("starting_latitude", trip.starting_latitude)
+    next_longitude = updates.get("starting_longitude", trip.starting_longitude)
+    _validate_trip_starting_place(next_place_name, next_country, next_latitude, next_longitude)
+    if "planned_countries" in updates:
+        updates["planned_countries"] = _normalize_planned_countries(updates.get("planned_countries"), next_country)
+        if not updates["planned_countries"]:
+            raise HTTPException(400, "At least one planned country is required")
+
+    for k, v in updates.items():
         setattr(trip, k, v)
+
+    first_point = _first_trip_point(db, trip.id)
+    if first_point:
+        first_point.place_name = str(next_place_name).strip()
+        first_point.country = str(next_country).strip()
+        first_point.city = " ".join(str(updates.get("starting_city", trip.starting_city) or "").strip().split()) or None
+        first_point.latitude = next_latitude
+        first_point.longitude = next_longitude
+        first_point.visit_date = next_start_date
+
+    log_audit_event(
+        db,
+        user=user,
+        action="update_trip",
+        resource_type="trip",
+        resource_id=str(trip.id),
+        details={"updated_fields": sorted(updates.keys())},
+    )
     db.commit()
     db.refresh(trip)
     return trip
@@ -96,6 +214,14 @@ async def delete_trip(
         if pt.image_url:
             urls_to_delete.append(pt.image_url)
 
+    log_audit_event(
+        db,
+        user=user,
+        action="delete_trip",
+        resource_type="trip",
+        resource_id=str(trip.id),
+        details={"title": trip.title},
+    )
     db.delete(trip)
     db.commit()
 

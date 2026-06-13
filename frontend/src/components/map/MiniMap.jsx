@@ -2,6 +2,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import { Link } from 'react-router-dom'
 import L from 'leaflet'
 import { useEffect, useRef } from 'react'
+import { DEFAULT_MAP_PROPS, DEFAULT_TILE_PROPS } from './mapConfig'
 
 const countryDot = L.divIcon({
   html: `<div style="background:#4f46e5;width:14px;height:14px;border-radius:50%;border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,.45)"></div>`,
@@ -46,8 +47,18 @@ export default function MiniMap({ points = [], trips = [] }) {
   const coords = entries.map(e => [e.rep.latitude, e.rep.longitude])
 
   return (
-    <MapContainer center={[20, 10]} zoom={2} className="w-full h-full" zoomControl attributionControl={false}>
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+    <MapContainer
+      center={[20, 10]}
+      zoom={2}
+      className="w-full h-full"
+      zoomControl
+      attributionControl={false}
+      {...DEFAULT_MAP_PROPS}
+    >
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        {...DEFAULT_TILE_PROPS}
+      />
       <FitBounds coords={coords} />
 
       {entries.map(({ country, rep, pts, relatedTrips }) => (

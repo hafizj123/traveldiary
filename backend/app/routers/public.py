@@ -39,16 +39,21 @@ def _public_segment_response(db: Session, seg: TravelSegment):
         from_pt.longitude,
         to_pt.latitude,
         to_pt.longitude,
+        from_pt.country,
+        to_pt.country,
     )
-    payload["route_geometry"] = geometry
-    payload["route_status"] = status
-    payload["route_provider"] = get_train_route_provider(
+    provider = get_train_route_provider(
         db,
         from_pt.latitude,
         from_pt.longitude,
         to_pt.latitude,
         to_pt.longitude,
+        from_pt.country,
+        to_pt.country,
     )
+    payload["route_geometry"] = geometry
+    payload["route_status"] = status
+    payload["route_provider"] = provider
     payload["route_anchor_start"] = anchor_start
     payload["route_anchor_end"] = anchor_end
     return payload

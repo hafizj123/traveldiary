@@ -6,18 +6,35 @@ import { uploadApi } from '../../api/upload'
 import Layout from '../../components/layout/Layout'
 import Button from '../../components/ui/Button'
 import Input  from '../../components/ui/Input'
+import PlaceSearch from '../../components/ui/PlaceSearch'
+import CountryMultiSelect from '../../components/ui/CountryMultiSelect'
+import LoadingSpinner from '../../components/ui/LoadingSpinner'
 import toast  from 'react-hot-toast'
+import { validateTripForm } from '../../utils/tripForm'
 
 export default function CreateTripPage() {
   const navigate  = useNavigate()
   const [form, setForm] = useState({
     title: '', description: '', start_date: '', end_date: '',
+    starting_place_name: '', starting_city: '', starting_country: '',
+    starting_latitude: '', starting_longitude: '',
+    planned_countries: [],
     cover_image_url: '', visibility: 'private',
   })
   const [loading, setLoading]   = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [errors, setErrors] = useState({})
 
-  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const set = (k) => (e) => {
+    const value = e.target.value
+    setForm(f => ({ ...f, [k]: value }))
+    setErrors(prev => ({
+      ...prev,
+      [k]: undefined,
+      ...(k === 'start_date' ? { end_date: undefined } : {}),
+      ...(k === 'end_date' ? { start_date: undefined } : {}),
+    }))
+  }
 
   const handleCoverUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -36,13 +53,19 @@ export default function CreateTripPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const { errors: nextErrors, sanitized } = validateTripForm(form)
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) return
+
     setLoading(true)
     try {
       const payload = {
-        ...form,
-        start_date: form.start_date || null,
-        end_date:   form.end_date   || null,
-        cover_image_url: form.cover_image_url || null,
+        ...sanitized,
+        start_date: sanitized.start_date,
+        end_date: sanitized.end_date,
+        starting_latitude: Number(sanitized.starting_latitude),
+        starting_longitude: Number(sanitized.starting_longitude),
+        cover_image_url: sanitized.cover_image_url || null,
       }
       const trip = await tripsApi.create(payload)
       toast.success('Trip created!')
@@ -65,7 +88,14 @@ export default function CreateTripPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-100 shadow-sm p-6 space-y-5">
-          <Input label="Trip title *" value={form.title} onChange={set('title')} required placeholder="e.g. Switzerland Winter 2026" />
+          <Input
+            label="Trip title *"
+            value={form.title}
+            onChange={set('title')}
+            required
+            error={errors.title}
+            placeholder="e.g. Switzerland Winter 2026"
+          />
 
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-slate-700">Description</label>
@@ -79,9 +109,85 @@ export default function CreateTripPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Start date" type="date" value={form.start_date} onChange={set('start_date')} />
-            <Input label="End date"   type="date" value={form.end_date}   onChange={set('end_date')} />
+            <Input
+              label="Start date *"
+              type="date"
+              value={form.start_date}
+              onChange={set('start_date')}
+              required
+              error={errors.start_date}
+              max={form.end_date || undefined}
+            />
+            <Input
+              label="End date *"
+              type="date"
+              value={form.end_date}
+              onChange={set('end_date')}
+              required
+              error={errors.end_date}
+              min={form.start_date || undefined}
+            />
           </div>
+
+          <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+            <h2 className="text-sm font-semibold text-slate-700">Starting place *</h2>
+            <PlaceSearch
+              label="Search starting place"
+              onSelect={({ place_name, city, country, latitude, longitude }) => {
+                setForm((current) => ({
+                  ...current,
+                  starting_place_name: place_name || '',
+                  starting_city: city || '',
+                  starting_country: country || '',
+                  starting_latitude: latitude ?? '',
+                  starting_longitude: longitude ?? '',
+                  planned_countries: Array.from(new Set([...(current.planned_countries || []), country || ''].filter(Boolean))),
+                }))
+                setErrors((prev) => ({
+                  ...prev,
+                  starting_place_name: undefined,
+                  starting_country: undefined,
+                  planned_countries: undefined,
+                }))
+                toast.success('Starting place selected')
+              }}
+              placeholder="Search where the trip started"
+            />
+            <Input
+              label="Starting place"
+              value={form.starting_place_name}
+              onChange={set('starting_place_name')}
+              required
+              error={errors.starting_place_name}
+              placeholder="Choose from search above"
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Starting country"
+                value={form.starting_country}
+                onChange={set('starting_country')}
+                required
+                error={errors.starting_country}
+                placeholder="Auto-filled from search"
+              />
+              <Input
+                label="Starting city"
+                value={form.starting_city}
+                onChange={set('starting_city')}
+                placeholder="Auto-filled from search"
+              />
+            </div>
+          </div>
+
+          <CountryMultiSelect
+            label="Countries in this trip *"
+            value={form.planned_countries}
+            onChange={(planned_countries) => {
+              setForm((current) => ({ ...current, planned_countries }))
+              setErrors((prev) => ({ ...prev, planned_countries: undefined }))
+            }}
+            error={errors.planned_countries}
+          />
 
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-slate-700">Cover image</label>
@@ -89,7 +195,12 @@ export default function CreateTripPage() {
               <img src={form.cover_image_url} alt="cover" className="w-full h-32 object-cover rounded-lg mb-2" />
             )}
             <input type="file" accept="image/*" onChange={handleCoverUpload} className="text-sm text-slate-500" />
-            {uploading && <p className="text-xs text-primary-500">Uploading…</p>}
+            {uploading && (
+              <p className="inline-flex items-center gap-2 text-xs text-primary-500">
+                <LoadingSpinner size="xs" />
+                Uploading...
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-1">

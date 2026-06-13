@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { Toaster } from 'react-hot-toast'
+import 'leaflet/dist/leaflet.css'
 import App from './App.jsx'
 import './index.css'
 

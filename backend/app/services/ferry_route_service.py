@@ -14,6 +14,11 @@ from ..services.train_route_service import get_cached_geometry, save_geometry
 logger = logging.getLogger(__name__)
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_FALLBACK_URLS = [
+    OVERPASS_URL,
+    "https://overpass.private.coffee/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+]
 CACHE_PREFIX = "osm_ferry_route"
 SEARCH_PADDING_DEGREES = 0.35
 TERMINAL_MATCH_RADIUS_DEGREES = 0.12
@@ -181,20 +186,26 @@ async def _query_overpass_ferry_geometry(
     out geom;
     """
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                OVERPASS_URL,
-                data={"data": query},
-                headers={
-                    "Accept": "application/json",
-                    "User-Agent": "traveldiary/1.0",
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
-        logger.warning("ferry_route: overpass query failed: %s", exc)
+    data = None
+    last_exc: Optional[Exception] = None
+    for endpoint in OVERPASS_FALLBACK_URLS:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    endpoint,
+                    data={"data": query},
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "traveldiary/1.0",
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                break
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("ferry_route: overpass query failed via %s: %s", endpoint, exc)
+    if data is None:
         return None
 
     start = [lat1, lon1]
@@ -246,20 +257,26 @@ async def _query_overpass_water_control_point(
     out center tags;
     """
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                OVERPASS_URL,
-                data={"data": query},
-                headers={
-                    "Accept": "application/json",
-                    "User-Agent": "traveldiary/1.0",
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
-        logger.warning("ferry_route: water control query failed: %s", exc)
+    data = None
+    last_exc: Optional[Exception] = None
+    for endpoint in OVERPASS_FALLBACK_URLS:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    endpoint,
+                    data={"data": query},
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "traveldiary/1.0",
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                break
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("ferry_route: water control query failed via %s: %s", endpoint, exc)
+    if data is None:
         return None
 
     midpoint = [(lat1 + lat2) / 2, (lon1 + lon2) / 2]
@@ -319,15 +336,28 @@ def get_ferry_route_state(
     lon1: float,
     lat2: float,
     lon2: float,
-) -> tuple[Optional[list[list[float]]], str]:
+) -> tuple[Optional[list[list[float]]], str, Optional[str]]:
     cached = get_cached_geometry(db, make_cache_key(lat1, lon1, lat2, lon2))
     if cached is None:
-        return None, "pending"
+        return None, "pending", None
 
     geometry = cached.get("geometry") or []
     if geometry:
-        return geometry, "ready"
-    return None, "unavailable"
+        return geometry, "ready", cached.get("provider")
+    return None, "unavailable", cached.get("provider")
+
+
+def get_ferry_route_provider(
+    db: Session,
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> Optional[str]:
+    cached = get_cached_geometry(db, make_cache_key(lat1, lon1, lat2, lon2))
+    if cached is None:
+        return None
+    return cached.get("provider")
 
 
 async def fetch_and_cache_ferry_route(
@@ -362,7 +392,10 @@ async def fetch_and_cache_ferry_route(
         save_geometry(
             db,
             key,
-            {"geometry": terminal_cached.get("geometry") or []},
+            {
+                "geometry": terminal_cached.get("geometry") or [],
+                "provider": terminal_cached.get("provider"),
+            },
         )
         geometry = terminal_cached.get("geometry") or []
         return geometry or None
@@ -381,26 +414,23 @@ async def fetch_and_cache_ferry_route(
         lookup_end["longitude"],
     )
 
-    if geometry and water_control:
-        bend = _max_distance_from_chord(
-            geometry,
-            start_point,
-            end_point,
-        )
-        if bend < MIN_FERRY_BEND_DEGREES:
-            geometry = None
+    provider = None
 
-    if not geometry and water_control:
+    if geometry:
+        provider = "osm_ferry"
+    elif water_control:
         geometry = _build_curve_through_control(
             start_point,
             end_point,
             water_control,
         )
+        provider = "ferry_water_curve"
 
     if not geometry:
         geometry = _build_basic_ferry_fallback(start_point, end_point)
+        provider = "ferry_fallback"
 
-    payload = {"geometry": geometry or []}
+    payload = {"geometry": geometry or [], "provider": provider}
     save_geometry(db, terminal_key, payload)
     if terminal_key != key:
         save_geometry(db, key, payload)

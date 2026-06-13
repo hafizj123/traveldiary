@@ -3,6 +3,7 @@ import L from 'leaflet'
 import { useState, useEffect } from 'react'
 import { MapPin } from 'lucide-react'
 import LoadingSpinner from '../ui/LoadingSpinner'
+import { DEFAULT_MAP_PROPS, DEFAULT_TILE_PROPS } from './mapConfig'
 
 const pickerIcon = L.divIcon({
   html: `<div style="background:#4f46e5;width:20px;height:20px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.4)"></div>`,
@@ -88,10 +89,12 @@ export default function MapPicker({
           center={pos ? [pos.lat, pos.lng] : [20, 0]}
           zoom={pos ? 12 : 2}
           className="w-full h-full"
+          {...DEFAULT_MAP_PROPS}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; OpenStreetMap'
+            {...DEFAULT_TILE_PROPS}
           />
           <ClickHandler onPick={handlePick} disabled={isLoading} />
           <FlyToFocus target={focusTarget} />
