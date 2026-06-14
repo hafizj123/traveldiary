@@ -26,6 +26,7 @@ from ..services.geojson_import_service import create_geojson_import_task, list_g
 from ..services.place_lookup_service import lookup_nearest_transport_place, reverse_geocode_location, search_transport_places
 from ..services.route_cache_service import build_route_cache_metadata, extract_geometry, normalize_countries
 from ..services.search_alias_service import search_alias_matches
+from ..services.audit_service import is_admin_user
 from ..services.train_route_service import (
     fetch_and_cache,
     get_train_route_provider,
@@ -36,7 +37,6 @@ from ..services.train_route_service import (
 from ..utils.deps import get_current_user
 
 router = APIRouter(tags=["routes"])
-ADMIN_ROUTE_EMAIL = "hafiz.shadowfiend@gmail.com"
 
 # Detect ISO 2-/3-letter country codes (e.g. "CN", "DE", "GBR") that need
 # to be resolved to full country names via reverse geocoding.
@@ -150,7 +150,7 @@ def _nearest_country_hint(db: Session, point: Optional[list], radius_meters: int
 
 
 def _require_admin_route_user(user: User) -> None:
-    if (user.email or "").strip().lower() != ADMIN_ROUTE_EMAIL:
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
@@ -549,7 +549,7 @@ def get_saved_route_cache(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if (user.email or "").strip().lower() != ADMIN_ROUTE_EMAIL:
+    if not is_admin_user(user):
         return {"items": []}
 
     query_limit = limit if not country else max(limit * 8, 400)

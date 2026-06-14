@@ -9,8 +9,6 @@ import SearchableLocationInput from '../../components/ui/SearchableLocationInput
 import { routesApi } from '../../api/routes'
 import { useAuth } from '../../contexts/AuthContext'
 import { DEFAULT_MAP_PROPS, DEFAULT_TILE_PROPS } from '../../components/map/mapConfig'
-
-const ADMIN_EMAIL = 'hafiz.shadowfiend@gmail.com'
 const ROUTE_COLOR = '#0f766e'
 const SUMMARY_LIMIT = 400
 const MAP_ROUTE_LIMIT = 120
@@ -41,7 +39,7 @@ export default function SavedRoutesPage() {
   const [selectedCountry, setSelectedCountry] = useState('')
   const [countryQuery, setCountryQuery] = useState('')
 
-  const isAllowed = (user?.email || '').toLowerCase() === ADMIN_EMAIL
+  const isAllowed = Boolean(user?.is_admin)
 
   useEffect(() => {
     if (!isAllowed) {

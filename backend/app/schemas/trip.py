@@ -18,6 +18,9 @@ def _is_europe_country(name: str) -> bool:
     return " ".join((name or "").strip().lower().split()) in _EUROPE_COUNTRIES
 
 
+ALLOWED_TRIP_VISIBILITY = {"private", "unlisted", "public"}
+
+
 class TripCreate(BaseModel):
     title: str
     description: Optional[str] = None
@@ -28,6 +31,7 @@ class TripCreate(BaseModel):
     starting_country: str
     starting_latitude: float
     starting_longitude: float
+    travel_companions: Optional[str] = None
     planned_countries: list[str]
     cover_image_url: Optional[str] = None
     visibility: str = "private"
@@ -43,6 +47,7 @@ class TripUpdate(BaseModel):
     starting_country: Optional[str] = None
     starting_latitude: Optional[float] = None
     starting_longitude: Optional[float] = None
+    travel_companions: Optional[str] = None
     planned_countries: Optional[list[str]] = None
     cover_image_url: Optional[str] = None
     visibility: Optional[str] = None
@@ -60,9 +65,12 @@ class TripResponse(BaseModel):
     starting_country: Optional[str] = None
     starting_latitude: Optional[float] = None
     starting_longitude: Optional[float] = None
+    travel_companions: Optional[str] = None
     planned_countries: Optional[list[str]] = None
     cover_image_url: Optional[str] = None
     visibility: str
+    share_slug: Optional[str] = None
+    shared_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

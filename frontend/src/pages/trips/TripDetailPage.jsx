@@ -1,38 +1,38 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Edit2, Trash2, Plus, MapPin, Clock, Images, Route, Globe, Share2 } from 'lucide-react'
+import { ArrowLeft, Edit2, Trash2, Plus, MapPin, Clock, Images, Route, Share2, BookOpen } from 'lucide-react'
 import { tripsApi } from '../../api/trips'
 import { timelineApi } from '../../api/timeline'
-import { useAuth } from '../../contexts/AuthContext'
 import Layout from '../../components/layout/Layout'
 import TripMap from '../../components/map/TripMap'
 import TimelineView from '../../components/timeline/TimelineView'
 import GalleryView from '../../components/gallery/GalleryView'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
-import Button from '../../components/ui/Button'
 import { fmtDateRange } from '../../utils/formatDate'
 import { getMethod } from '../../utils/travelIcons'
+import { buildShareUrlFromSlug } from '../../utils/share'
 import toast from 'react-hot-toast'
 
 const TABS = [
-  { id: 'map',      label: 'Map',      Icon: MapPin },
+  { id: 'map', label: 'Map', Icon: MapPin },
   { id: 'timeline', label: 'Timeline', Icon: Clock },
-  { id: 'gallery',  label: 'Gallery',  Icon: Images },
-  { id: 'routes',   label: 'Routes',   Icon: Route },
+  { id: 'gallery', label: 'Gallery', Icon: Images },
+  { id: 'routes', label: 'Routes', Icon: Route },
 ]
 
 export default function TripDetailPage() {
   const { tripId } = useParams()
-  const navigate   = useNavigate()
-  const { user }   = useAuth()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const [trip, setTrip]         = useState(null)
-  const [points, setPoints]     = useState([])
+  const [trip, setTrip] = useState(null)
+  const [points, setPoints] = useState([])
   const [segments, setSegments] = useState([])
-  const [loading, setLoading]   = useState(true)
+  const [loading, setLoading] = useState(true)
   const [deletingLocation, setDeletingLocation] = useState(false)
-  const [tab, setTab]           = useState(searchParams.get('tab') || 'map')
+  const [reorderingLocations, setReorderingLocations] = useState(false)
+  const [routeNoticeVisible, setRouteNoticeVisible] = useState(searchParams.get('routeNotice') === '1')
+  const [tab, setTab] = useState(searchParams.get('tab') || 'map')
   const [mapFocusTarget, setMapFocusTarget] = useState(() => {
     const lat = searchParams.get('focusLat')
     const lng = searchParams.get('focusLon')
@@ -52,16 +52,24 @@ export default function TripDetailPage() {
         timelineApi.listPoints(tripId),
         timelineApi.listSegments(tripId),
       ])
-      setTrip(t); setPoints(p); setSegments(s)
-    } catch { navigate('/trips') }
-    finally   { setLoading(false) }
+      setTrip(t)
+      setPoints(p)
+      setSegments(s)
+    } catch {
+      navigate('/trips')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { load() }, [tripId])
+  useEffect(() => {
+    load()
+  }, [tripId])
 
   useEffect(() => {
     const nextTab = searchParams.get('tab') || 'map'
     setTab(nextTab)
+    setRouteNoticeVisible(searchParams.get('routeNotice') === '1')
 
     const lat = searchParams.get('focusLat')
     const lng = searchParams.get('focusLon')
@@ -91,6 +99,20 @@ export default function TripDetailPage() {
     setSearchParams(nextParams, { replace: true })
   }
 
+  const showRouteNotice = () => {
+    setRouteNoticeVisible(true)
+    const nextParams = new URLSearchParams(window.location.search)
+    nextParams.set('routeNotice', '1')
+    setSearchParams(nextParams, { replace: true })
+  }
+
+  const dismissRouteNotice = () => {
+    setRouteNoticeVisible(false)
+    const nextParams = new URLSearchParams(window.location.search)
+    nextParams.delete('routeNotice')
+    setSearchParams(nextParams, { replace: true })
+  }
+
   const handleDeleteTrip = async () => {
     if (!confirm('Delete this trip and all its data?')) return
     await tripsApi.delete(tripId)
@@ -104,6 +126,7 @@ export default function TripDetailPage() {
     try {
       await timelineApi.deletePoint(pointId)
       await load()
+      showRouteNotice()
       toast.success('Location removed')
     } finally {
       setDeletingLocation(false)
@@ -132,6 +155,7 @@ export default function TripDetailPage() {
           : null
       )
       await load()
+      showRouteNotice()
       toast.success('Location removed')
     } finally {
       setDeletingLocation(false)
@@ -144,10 +168,43 @@ export default function TripDetailPage() {
     )
   }
 
-  if (loading) return <Layout><div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div></Layout>
-  if (!trip)   return null
+  const handleMovePoint = async (pointId, direction) => {
+    const currentIndex = points.findIndex((point) => point.id === pointId)
+    const swapIndex = currentIndex + direction
+    if (currentIndex < 0 || swapIndex < 0 || swapIndex >= points.length) return
 
-  const publicUrl = `${window.location.origin}/u/${user?.username}/trips/${tripId}`
+    const nextPoints = [...points]
+    ;[nextPoints[currentIndex], nextPoints[swapIndex]] = [nextPoints[swapIndex], nextPoints[currentIndex]]
+
+    setReorderingLocations(true)
+    try {
+      await timelineApi.reorderPoints(tripId, nextPoints.map((point) => point.id))
+      await load()
+      showRouteNotice()
+      toast.success('Timeline order updated')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to reorder locations', { duration: 7000 })
+    } finally {
+      setReorderingLocations(false)
+    }
+  }
+
+  const handleRegenerateShare = async () => {
+    try {
+      const updatedTrip = await tripsApi.regenerateShare(tripId)
+      setTrip((current) => ({ ...current, ...updatedTrip }))
+      toast.success('Share link regenerated')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Could not regenerate share link')
+    }
+  }
+
+  if (loading) return <Layout><div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div></Layout>
+  if (!trip) return null
+
+  const shareUrl = buildShareUrlFromSlug(trip.share_slug, trip.share_url)
+  const isSharedTrip = trip.visibility === 'public' || trip.visibility === 'unlisted'
+  const visibilityLabel = trip.visibility === 'public' ? 'Public' : trip.visibility === 'unlisted' ? 'Unlisted' : 'Private'
 
   return (
     <Layout>
@@ -163,7 +220,18 @@ export default function TripDetailPage() {
             </div>
           </div>
         )}
-        {/* Header */}
+        {reorderingLocations && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/35 backdrop-blur-[1px]">
+            <div className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 shadow-xl">
+              <LoadingSpinner size="md" />
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Updating timeline...</p>
+                <p className="text-xs text-slate-500">Saving the new trip order</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div>
           <Link to="/trips" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-primary-600 mb-3">
             <ArrowLeft className="w-4 h-4" /> My Trips
@@ -179,23 +247,24 @@ export default function TripDetailPage() {
                 <div>
                   <h1 className="text-2xl font-bold text-white">{trip.title}</h1>
                   {(trip.start_date || trip.end_date) && (
-                    <p className="text-white/70 text-sm mt-1">{fmtDateRange(trip.start_date, trip.end_date)}</p>
+                    <p className="text-sm text-white/70 mt-1">{fmtDateRange(trip.start_date, trip.end_date)}</p>
                   )}
+                  <p className="text-xs text-white/70 mt-1">{visibilityLabel} trip</p>
                   {trip.stats && (
-                    <p className="text-white/60 text-xs mt-1">
+                    <p className="text-xs text-white/60 mt-1">
                       {trip.stats.total_points} places · {trip.stats.total_countries} {trip.stats.total_countries === 1 ? 'country' : 'countries'}
                     </p>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {trip.visibility === 'public' && (
+                  {isSharedTrip && shareUrl ? (
                     <button
-                      onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('Link copied!') }}
+                      onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success('Link copied!') }}
                       className="flex items-center gap-1 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-lg"
                     >
                       <Share2 className="w-3 h-3" /> Share
                     </button>
-                  )}
+                  ) : null}
                   <Link to={`/trips/${tripId}/edit`} className="flex items-center gap-1 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-lg">
                     <Edit2 className="w-3 h-3" /> Edit
                   </Link>
@@ -208,21 +277,108 @@ export default function TripDetailPage() {
           </div>
         </div>
 
-        {/* Tab bar */}
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Sharing</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {trip.visibility === 'private'
+                  ? 'This trip is private. Switch to Unlisted or Public in Edit Trip to generate a share link.'
+                  : trip.visibility === 'unlisted'
+                    ? 'Anyone with this link can view the trip, but it will not appear in Shared Trips.'
+                    : 'This trip is publicly discoverable and can appear in Shared Trips.'}
+              </p>
+            </div>
+            {isSharedTrip && shareUrl ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success('Link copied!') }}
+                  className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-medium text-white hover:bg-primary-700"
+                >
+                  Copy link
+                </button>
+                <a
+                  href={shareUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Open shared page
+                </a>
+                <button
+                  type="button"
+                  onClick={handleRegenerateShare}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Regenerate link
+                </button>
+              </div>
+            ) : null}
+          </div>
+          {isSharedTrip && shareUrl ? (
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 break-all">{shareUrl}</div>
+              <div className="flex flex-wrap gap-4 text-xs text-slate-500">
+                <span>{trip.public_stats?.unique_views_total || 0} unique views total</span>
+                <span>{trip.public_stats?.unique_views_7d || 0} in last 7 days</span>
+                <span>{trip.public_stats?.unique_views_30d || 0} in last 30 days</span>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Travel Journal</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Turn this finished route into a readable journal built from your places, notes, companions, and uploaded photos.
+              </p>
+              {trip.travel_companions ? (
+                <p className="mt-2 text-xs text-slate-500">Companions: {trip.travel_companions}</p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to={`/trips/${tripId}/journal`}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <BookOpen className="h-4 w-4" />
+                {trip.journal_exists ? 'Open journal' : 'Create journal'}
+              </Link>
+              {trip.visibility !== 'private' && trip.share_slug && trip.journal_exists ? (
+                <Link
+                  to={`/shared/${trip.share_slug}/journal`}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Public journal
+                </Link>
+              ) : null}
+            </div>
+          </div>
+          {!trip.description ? (
+            <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              This trip does not have much written description yet, so the journal will lean more on timeline order, route flow, images, and trip metadata.
+            </p>
+          ) : null}
+        </div>
+
         <div className="flex items-center gap-1 bg-white rounded-xl border border-slate-100 shadow-sm p-1">
           {TABS.map(({ id, label, Icon }) => (
             <button
               key={id}
               onClick={() => updateViewParams(id)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-colors
-                ${tab === id ? 'bg-primary-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-lg transition-colors ${
+                tab === id ? 'bg-primary-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+              }`}
             >
-              <Icon className="w-4 h-4" /><span className="hidden sm:inline">{label}</span>
+              <Icon className="w-4 h-4" />
+              <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
         </div>
 
-        {/* Add location button */}
         <div className="flex justify-end">
           <Link
             to={`/trips/${tripId}/points/new?returnTo=${tab}`}
@@ -232,7 +388,24 @@ export default function TripDetailPage() {
           </Link>
         </div>
 
-        {/* Tab content */}
+        {routeNoticeVisible && (
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div>
+              <p className="font-semibold">Timeline updated</p>
+              <p className="mt-1 text-amber-800">
+                Map marker order already follows the new trip sequence. Some route paths or segment details may need review if you changed the trip order in the middle.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissRouteNotice}
+              className="rounded-lg px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {tab === 'map' && (
           <div className="h-[54vh] min-h-[360px] rounded-xl overflow-hidden border border-slate-100 shadow-sm lg:h-[60vh] 2xl:h-[calc(100vh-21rem)]">
             <TripMap
@@ -247,7 +420,14 @@ export default function TripDetailPage() {
 
         {tab === 'timeline' && (
           <div className="2xl:max-h-[calc(100vh-21rem)] 2xl:overflow-y-auto 2xl:pr-1">
-            <TimelineView points={points} segments={segments} tripId={tripId} onDelete={handleDeletePoint} />
+            <TimelineView
+              points={points}
+              segments={segments}
+              tripId={tripId}
+              onDelete={handleDeletePoint}
+              onMoveUp={(pointId) => handleMovePoint(pointId, -1)}
+              onMoveDown={(pointId) => handleMovePoint(pointId, 1)}
+            />
           </div>
         )}
 
@@ -262,11 +442,11 @@ export default function TripDetailPage() {
             {segments.length === 0 ? (
               <div className="py-12 text-center text-slate-400">No routes recorded yet.</div>
             ) : (
-              segments.map(seg => {
-                const from = points.find(p => p.id === seg.from_point_id)
-                const to   = points.find(p => p.id === seg.to_point_id)
+              segments.map((seg) => {
+                const from = points.find((p) => p.id === seg.from_point_id)
+                const to = points.find((p) => p.id === seg.to_point_id)
                 const method = getMethod(seg.travel_method)
-                const Icon   = method.Icon
+                const Icon = method.Icon
                 return (
                   <div key={seg.id} className="flex items-center gap-4 px-5 py-4">
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${method.color}1a` }}>

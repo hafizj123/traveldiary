@@ -1,17 +1,23 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Globe } from 'lucide-react'
+import toast from 'react-hot-toast'
+
 import { authApi } from '../../api/auth'
+import { useAuth } from '../../contexts/AuthContext'
 import Button from '../../components/ui/Button'
-import Input  from '../../components/ui/Input'
+import GoogleSignInButton, { isGoogleSignInAvailable } from '../../components/ui/GoogleSignInButton'
+import Input from '../../components/ui/Input'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const { login } = useAuth()
+  const googleAvailable = isGoogleSignInAvailable()
   const [form, setForm] = useState({ email: '', password: '', username: '' })
   const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
+  const [error, setError] = useState('')
 
-  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -26,6 +32,22 @@ export default function RegisterPage() {
       navigate('/verify-otp', { state: { email: form.email, debug_otp: res.debug_otp } })
     } catch (err) {
       setError(err.response?.data?.detail || 'Registration failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async (credential) => {
+    setError('')
+    setLoading(true)
+    try {
+      const token = await authApi.googleLogin(credential)
+      const me = await authApi.me(token.access_token)
+      login(token.access_token, me)
+      toast.success('Signed in with Google')
+      navigate('/dashboard')
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Google sign-in failed')
     } finally {
       setLoading(false)
     }
@@ -51,6 +73,16 @@ export default function RegisterPage() {
             <p className="text-xs text-slate-400 mt-1">Minimum 8 characters</p>
           </div>
           <Button type="submit" loading={loading} className="w-full">Create account</Button>
+          {googleAvailable ? (
+            <>
+              <div className="flex items-center gap-3 py-1">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="text-xs uppercase tracking-wide text-slate-400">or</span>
+                <div className="h-px flex-1 bg-slate-200" />
+              </div>
+              <GoogleSignInButton onCredential={handleGoogleLogin} text="signup_with" />
+            </>
+          ) : null}
         </form>
 
         <p className="text-center text-sm text-slate-500">

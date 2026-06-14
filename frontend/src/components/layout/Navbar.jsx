@@ -1,15 +1,14 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
-  Globe, LayoutDashboard, Map, LogOut, Menu, X, User, Database, Download, Settings2, Wrench,
+  Globe, LayoutDashboard, Map, LogOut, Menu, X, User, Database, Download, Wrench,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 
-const ADMIN_EMAIL = 'hafiz.shadowfiend@gmail.com'
-
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { to: '/trips',     label: 'My Trips',  Icon: Map },
+  { to: '/shared-trips', label: 'Shared Trips', Icon: Globe },
 ]
 
 export default function Navbar() {
@@ -17,13 +16,12 @@ export default function Navbar() {
   const navigate = useNavigate()
   const location = useLocation()
   const [open, setOpen] = useState(false)
-  const isAdminViewer = (user?.email || '').toLowerCase() === ADMIN_EMAIL
+  const isAdminViewer = Boolean(user?.is_admin)
   const navItems = isAdminViewer
     ? [
         ...NAV,
         { to: '/admin-tools', label: 'Admin Tools', Icon: Wrench },
         { to: '/saved-routes', label: 'Saved Routes', Icon: Database },
-        { to: '/country-route-policies', label: 'Route Policies', Icon: Settings2 },
         { to: '/geojson-imports', label: 'GeoJSON Imports', Icon: Download },
       ]
     : NAV

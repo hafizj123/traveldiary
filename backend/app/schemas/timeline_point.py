@@ -13,6 +13,7 @@ class TimelinePointCreate(BaseModel):
     longitude: Optional[float] = None
     image_url: Optional[str] = None
     sequence_no: Optional[int] = None
+    insert_after_point_id: Optional[int] = None
     travel_method: Optional[str] = None  # auto-creates segment from previous point
 
 

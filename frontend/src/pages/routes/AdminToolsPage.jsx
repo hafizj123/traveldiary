@@ -26,8 +26,6 @@ import AdminDataTable from '../../components/ui/AdminDataTable'
 import { routesApi } from '../../api/routes'
 import { useAuth } from '../../contexts/AuthContext'
 
-const ADMIN_EMAIL = 'hafiz.shadowfiend@gmail.com'
-
 const MODE_LABELS = {
   google_osm: 'Google + OSM',
   geojson_osm: 'Local GeoJSON + OSM',
@@ -62,12 +60,12 @@ const SPECIAL_CASE_EXAMPLES = [
     label: 'Grutschalp Example',
     alias: 'Grutschalp',
     method: 'excursion',
-    place_name: 'Gr\u00fctschalp',
+    place_name: 'Grutschalp',
     city: 'Lauterbrunnen',
     country: 'Switzerland',
     latitude: '46.5965617',
     longitude: '7.890707',
-    notes: 'Alternative spelling that should resolve to Gr\u00fctschalp.',
+    notes: 'Alternative spelling that should resolve to Grutschalp.',
   },
 ]
 
@@ -140,12 +138,15 @@ export default function AdminToolsPage() {
   const [aliases, setAliases] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
   const [trips, setTrips] = useState([])
+  const [users, setUsers] = useState([])
   const [tripQuery, setTripQuery] = useState('')
+  const [userQuery, setUserQuery] = useState('')
   const [selectedTripId, setSelectedTripId] = useState(null)
   const [tripDetail, setTripDetail] = useState(null)
   const [tripDetailLoading, setTripDetailLoading] = useState(false)
   const [selectedCountryKeys, setSelectedCountryKeys] = useState([])
   const [bulkMode, setBulkMode] = useState('osm_only')
+  const [activeSection, setActiveSection] = useState('system-status')
   const [bulkSaving, setBulkSaving] = useState(false)
   const [selectedBrokenRouteIds, setSelectedBrokenRouteIds] = useState([])
   const [cleanupLoading, setCleanupLoading] = useState(false)
@@ -153,6 +154,7 @@ export default function AdminToolsPage() {
   const [aliasDeletingId, setAliasDeletingId] = useState(0)
   const [exportLoading, setExportLoading] = useState(false)
   const [normalizingTripId, setNormalizingTripId] = useState(0)
+  const [updatingUserId, setUpdatingUserId] = useState(0)
   const [aliasForm, setAliasForm] = useState({
     alias: '',
     method: '',
@@ -164,7 +166,7 @@ export default function AdminToolsPage() {
     notes: '',
   })
 
-  const isAllowed = (user?.email || '').toLowerCase() === ADMIN_EMAIL
+  const isAllowed = Boolean(user?.is_admin)
 
   const loadDashboard = async () => {
     const [
@@ -176,6 +178,7 @@ export default function AdminToolsPage() {
       auditData,
       tripData,
       policyData,
+      userData,
     ] = await Promise.all([
       routesApi.adminSystemStatus(),
       routesApi.adminDataHealth(),
@@ -185,6 +188,7 @@ export default function AdminToolsPage() {
       routesApi.adminAuditLogs({ limit: 120 }),
       routesApi.adminTrips({ query: '', limit: 60 }),
       routesApi.countryRoutePolicies(),
+      routesApi.adminUsers({ query: '', limit: 120 }),
     ])
 
     setSystemStatus(systemData)
@@ -195,11 +199,17 @@ export default function AdminToolsPage() {
     setAuditLogs(auditData.items || [])
     setTrips(tripData.items || [])
     setPolicies(policyData.items || [])
+    setUsers(userData.items || [])
   }
 
   const loadTrips = async (query) => {
     const data = await routesApi.adminTrips({ query, limit: 60 })
     setTrips(data.items || [])
+  }
+
+  const loadUsers = async (query) => {
+    const data = await routesApi.adminUsers({ query, limit: 120 })
+    setUsers(data.items || [])
   }
 
   const loadTripDetail = async (tripId) => {
@@ -434,6 +444,31 @@ export default function AdminToolsPage() {
       setError('')
     } catch (err) {
       setError(err?.response?.data?.detail || 'Failed to search trips.')
+    }
+  }
+
+  const handleUserSearch = async (event) => {
+    event.preventDefault()
+    try {
+      await loadUsers(userQuery)
+      setError('')
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to search users.')
+    }
+  }
+
+  const handleUserUpdate = async (userId, payload) => {
+    setUpdatingUserId(userId)
+    try {
+      await routesApi.adminUpdateUser(userId, payload)
+      await loadUsers(userQuery)
+      setError('')
+      toast.success('User updated')
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to update user.')
+      toast.error(err?.response?.data?.detail || 'Failed to update user.')
+    } finally {
+      setUpdatingUserId(0)
     }
   }
 
@@ -687,6 +722,86 @@ export default function AdminToolsPage() {
     },
   ]
 
+  const userColumns = [
+    {
+      key: 'email',
+      label: 'User',
+      render: (row) => (
+        <div className="flex items-center gap-3">
+          {row.avatar_url ? (
+            <img src={row.avatar_url} alt="" className="h-9 w-9 rounded-full object-cover" />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+              {(row.email || '?').slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <div>
+            <p className="font-semibold text-slate-800">{row.email}</p>
+            <p className="text-xs text-slate-500">{row.username || 'No username'}</p>
+          </div>
+        </div>
+      ),
+      searchValue: (row) => [row.email, row.username, row.auth_provider].filter(Boolean).join(' '),
+    },
+    {
+      key: 'auth_provider',
+      label: 'Provider',
+      render: (row) => (
+        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+          {row.auth_provider || 'local'}
+        </span>
+      ),
+    },
+    {
+      key: 'is_verified',
+      label: 'Verified',
+      render: (row) => (row.is_verified ? 'Yes' : 'No'),
+    },
+    {
+      key: 'is_active',
+      label: 'Status',
+      render: (row) => (row.is_active ? 'Active' : 'Disabled'),
+    },
+    {
+      key: 'is_admin',
+      label: 'Role',
+      render: (row) => (row.is_admin ? 'Admin' : 'User'),
+    },
+    {
+      key: 'last_login_at',
+      label: 'Last Login',
+      render: (row) => formatDateTime(row.last_login_at),
+      sortValue: (row) => new Date(row.last_login_at || 0).getTime(),
+    },
+    {
+      key: 'actions',
+      label: 'Action',
+      sortable: false,
+      render: (row) => row.id === user?.id ? (
+        <span className="text-xs text-slate-500">Current account</span>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => handleUserUpdate(row.id, { is_admin: !row.is_admin })}
+            loading={updatingUserId === row.id}
+          >
+            {row.is_admin ? 'Remove Admin' : 'Make Admin'}
+          </Button>
+          <Button
+            size="sm"
+            variant={row.is_active ? 'danger' : 'secondary'}
+            onClick={() => handleUserUpdate(row.id, { is_active: !row.is_active })}
+            loading={updatingUserId === row.id}
+          >
+            {row.is_active ? 'Disable' : 'Enable'}
+          </Button>
+        </div>
+      ),
+    },
+  ]
+
   const pointColumns = [
     { key: 'sequence_no', label: 'Seq', className: 'text-right', headerClassName: 'text-right' },
     { key: 'place_name', label: 'Place' },
@@ -709,6 +824,494 @@ export default function AdminToolsPage() {
     { key: 'from_point_id', label: 'From', className: 'text-right', headerClassName: 'text-right' },
     { key: 'to_point_id', label: 'To', className: 'text-right', headerClassName: 'text-right' },
   ]
+
+  const sections = [
+    {
+      key: 'system-status',
+      label: 'System Status',
+      description: 'Backend, storage, and overview metrics.',
+      Icon: Stethoscope,
+    },
+    {
+      key: 'data-health',
+      label: 'Data Health',
+      description: 'Country coverage and route-cache footprint.',
+      Icon: Database,
+    },
+    {
+      key: 'task-history',
+      label: 'Task History',
+      description: 'GeoJSON import task history.',
+      Icon: History,
+    },
+    {
+      key: 'broken-routes',
+      label: 'Broken Route Cache',
+      description: 'Review and delete bad cache rows.',
+      Icon: BadgeAlert,
+    },
+    {
+      key: 'route-policy',
+      label: 'Route Policy',
+      description: 'Change route modes from one admin workspace.',
+      Icon: Settings2,
+    },
+    {
+      key: 'search-aliases',
+      label: 'Search Aliases',
+      description: 'Manage special-case place aliases.',
+      Icon: Link2,
+    },
+    {
+      key: 'audit-log',
+      label: 'Audit Log',
+      description: 'Recent admin and content changes.',
+      Icon: FileSearch,
+    },
+    {
+      key: 'users',
+      label: 'Users',
+      description: 'Manage account access, roles, and providers.',
+      Icon: UserCog,
+    },
+    {
+      key: 'trip-repair',
+      label: 'Trip Repair',
+      description: 'Inspect trips and normalize sequence order.',
+      Icon: Wrench,
+    },
+  ]
+
+  const activeSectionMeta = sections.find((section) => section.key === activeSection) || sections[0]
+
+  const renderActiveSection = () => {
+    switch (activeSection) {
+      case 'system-status':
+        return (
+          <div className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <StatCard label="Trips" value={systemStatus?.trip_count || 0} hint={`${systemStatus?.point_count || 0} points`} />
+              <StatCard label="Route Cache" value={systemStatus?.route_cache_count || 0} hint={`${systemStatus?.segment_count || 0} segments`} />
+              <StatCard label="Datasets" value={dataHealth?.summary?.dataset_count || 0} hint={`${dataHealth?.summary?.countries_with_local_data || 0} countries with local data`} />
+              <StatCard label="Aliases" value={systemStatus?.search_alias_count || 0} hint={`${aliases.length} loaded`} />
+              <StatCard label="Disk Free" value={`${systemStatus?.disk_free_mb || 0} MB`} hint={`${systemStatus?.backup_size_mb || 0} MB backups`} />
+            </div>
+            <SectionCard
+              title="System Status"
+              subtitle="Quick backend and data storage health."
+              Icon={Stethoscope}
+              actions={(
+                <div className="flex flex-wrap gap-2">
+                  <Link to="/saved-routes" className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">Saved Routes</Link>
+                  <Link to="/geojson-imports" className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">GeoJSON Imports</Link>
+                </div>
+              )}
+            >
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Database</p>
+                  <p className="mt-1 break-all text-sm text-slate-700">{systemStatus?.database_path || '-'}</p>
+                  <p className="mt-2 text-xs text-slate-500">Size: {systemStatus?.database_size_mb || 0} MB</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Dataset Root</p>
+                  <p className="mt-1 break-all text-sm text-slate-700">{systemStatus?.dataset_root || '-'}</p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Active imports: {systemStatus?.active_import_tasks || 0} {'\u00b7'} Dataset size: {systemStatus?.dataset_size_mb || 0} MB
+                  </p>
+                </div>
+              </div>
+            </SectionCard>
+          </div>
+        )
+      case 'data-health':
+        return (
+          <SectionCard
+            title="Data Health"
+            subtitle="Sortable table for country coverage, local dataset counts, and route-cache footprint."
+            Icon={Database}
+          >
+            <AdminDataTable
+              title="Country Health"
+              columns={countryHealthColumns}
+              rows={dataHealth?.countries || []}
+              rowKey="country_key"
+              searchPlaceholder="Search country, continent, or route mode"
+              initialSortKey="dataset_count"
+              initialSortDirection="desc"
+              initialPageSize={12}
+              emptyMessage="No country health data is available yet."
+            />
+          </SectionCard>
+        )
+      case 'task-history':
+        return (
+          <SectionCard
+            title="Task History"
+            subtitle="This table now uses the same single task-history source as the GeoJSON Import page."
+            Icon={History}
+          >
+            <AdminDataTable
+              title="Import Tasks"
+              columns={importHistoryColumns}
+              rows={importHistory}
+              rowKey="id"
+              searchPlaceholder="Search country, city, dataset key, stage, or status"
+              initialSortKey="created_at"
+              initialSortDirection="desc"
+              initialPageSize={12}
+              emptyMessage="No import tasks are available yet."
+            />
+          </SectionCard>
+        )
+      case 'broken-routes':
+        return (
+          <SectionCard
+            title="Broken Route Cache"
+            subtitle="Pick multiple broken cache rows and delete only the ones you selected."
+            Icon={BadgeAlert}
+            actions={(
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={handleBrokenRouteDelete}
+                loading={cleanupLoading}
+                disabled={!selectedBrokenRouteIds.length}
+              >
+                Delete Selected {selectedBrokenRouteIds.length || 0}
+              </Button>
+            )}
+          >
+            {selectedBrokenRouteIds.length > 0 ? (
+              <p className="mb-4 text-xs text-slate-500">
+                Selected route ids: {selectedBrokenRouteIds.join(', ')}
+              </p>
+            ) : null}
+            <AdminDataTable
+              title="Broken Routes"
+              columns={brokenRouteColumns}
+              rows={brokenRoutes}
+              rowKey="id"
+              searchPlaceholder="Search cache key, provider, or country"
+              initialSortKey="created_at"
+              initialSortDirection="desc"
+              initialPageSize={12}
+              emptyMessage="No broken route cache rows were found."
+            />
+          </SectionCard>
+        )
+      case 'route-policy':
+        return (
+          <SectionCard
+            title="Route Policy"
+            subtitle="Search, sort, pick countries, and apply one train mode from this admin workspace."
+            Icon={Settings2}
+            actions={(
+              <Button size="sm" onClick={handleBulkApply} loading={bulkSaving} disabled={!selectedCountryKeys.length}>
+                Apply To {selectedCountryKeys.length || 0}
+              </Button>
+            )}
+          >
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <select
+                value={bulkMode}
+                onChange={(event) => {
+                  setBulkMode(event.target.value)
+                  setError('')
+                }}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              >
+                {Object.entries(MODE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              {selectedCountries.length > 0 ? (
+                <p className="text-xs text-slate-500">
+                  Selected: {selectedCountries.map((item) => item.country_name).join(', ')}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Pick one or more countries, then apply the selected route mode.
+                </p>
+              )}
+            </div>
+            <AdminDataTable
+              title="Policy Countries"
+              columns={policyColumns}
+              rows={policies}
+              rowKey="country_key"
+              searchPlaceholder="Search country, continent, city dataset, or mode"
+              initialSortKey="country_name"
+              initialSortDirection="asc"
+              initialPageSize={12}
+              emptyMessage="No route policy rows are available yet."
+            />
+          </SectionCard>
+        )
+      case 'search-aliases':
+        return (
+          <SectionCard
+            title="Search Alias Overrides"
+            subtitle="For a special case, add one alias row per search spelling and point all of them to the same real coordinates."
+            Icon={Link2}
+          >
+            <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+              <div className="flex items-start gap-2">
+                <Info className="mt-0.5 h-4 w-4 text-sky-700" />
+                <div className="space-y-2 text-sm text-sky-900">
+                  <p>
+                    Example workflow: if users search <strong>Grutschalp</strong>, <strong>Gruetschalp</strong>, and <strong>Grutschalp</strong>, create one row for each alias but keep the same resolved place and coordinates.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {SPECIAL_CASE_EXAMPLES.map((example) => (
+                      <button
+                        key={example.label}
+                        type="button"
+                        onClick={() => fillAliasExample(example)}
+                        className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                      >
+                        Use {example.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleAliasSubmit} className="grid gap-3 md:grid-cols-2">
+              <input
+                value={aliasForm.alias}
+                onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
+                placeholder="Alias text, for example Grutschalp"
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              />
+              <select
+                value={aliasForm.method}
+                onChange={(event) => setAliasForm((current) => ({ ...current, method: event.target.value }))}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              >
+                {ALIAS_METHOD_OPTIONS.map((option) => (
+                  <option key={option.label} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <input
+                value={aliasForm.place_name}
+                onChange={(event) => setAliasForm((current) => ({ ...current, place_name: event.target.value }))}
+                placeholder="Resolved place name, for example Grutschalp"
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              />
+              <input
+                value={aliasForm.city}
+                onChange={(event) => setAliasForm((current) => ({ ...current, city: event.target.value }))}
+                placeholder="City"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              />
+              <input
+                value={aliasForm.country}
+                onChange={(event) => setAliasForm((current) => ({ ...current, country: event.target.value }))}
+                placeholder="Country"
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              />
+              <input
+                value={aliasForm.notes}
+                onChange={(event) => setAliasForm((current) => ({ ...current, notes: event.target.value }))}
+                placeholder="Notes, for example special lift alias"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              />
+              <input
+                type="number"
+                step="any"
+                value={aliasForm.latitude}
+                onChange={(event) => setAliasForm((current) => ({ ...current, latitude: event.target.value }))}
+                placeholder="Latitude"
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              />
+              <input
+                type="number"
+                step="any"
+                value={aliasForm.longitude}
+                onChange={(event) => setAliasForm((current) => ({ ...current, longitude: event.target.value }))}
+                placeholder="Longitude"
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              />
+              <div className="md:col-span-2">
+                <Button type="submit" loading={aliasSubmitting}>Create Alias</Button>
+              </div>
+            </form>
+
+            <div className="mt-5">
+              <AdminDataTable
+                title="Alias Overrides"
+                columns={aliasColumns}
+                rows={aliases}
+                rowKey="id"
+                searchPlaceholder="Search alias, resolved place, country, or notes"
+                initialSortKey="alias"
+                initialSortDirection="asc"
+                initialPageSize={12}
+                emptyMessage="No alias overrides have been created yet."
+              />
+            </div>
+          </SectionCard>
+        )
+      case 'audit-log':
+        return (
+          <SectionCard
+            title="Audit Log"
+            subtitle="Newest admin and content change records in one sortable table."
+            Icon={FileSearch}
+          >
+            <AdminDataTable
+              title="Audit Logs"
+              columns={auditColumns}
+              rows={auditLogs}
+              rowKey="id"
+              searchPlaceholder="Search action, actor, resource, or id"
+              initialSortKey="created_at"
+              initialSortDirection="desc"
+              initialPageSize={12}
+              emptyMessage="No audit records are available yet."
+            />
+          </SectionCard>
+        )
+      case 'users':
+        return (
+          <SectionCard
+            title="Users"
+            subtitle="Manage account access, admin roles, and sign-in providers."
+            Icon={UserCog}
+          >
+            <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard label="Total Users" value={users.length} />
+              <StatCard label="Active Users" value={users.filter((item) => item.is_active).length} />
+              <StatCard label="Admins" value={users.filter((item) => item.is_admin).length} />
+              <StatCard label="Google Users" value={users.filter((item) => item.auth_provider === 'google' || item.auth_provider === 'hybrid').length} />
+            </div>
+
+            <form onSubmit={handleUserSearch} className="mb-4 flex flex-wrap gap-3">
+              <input
+                value={userQuery}
+                onChange={(event) => setUserQuery(event.target.value)}
+                placeholder="Search email, username, or provider"
+                className="min-w-[280px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+              />
+              <Button type="submit" variant="secondary">Search Users</Button>
+            </form>
+
+            <AdminDataTable
+              title="Users"
+              columns={userColumns}
+              rows={users}
+              rowKey="id"
+              searchPlaceholder="Filter loaded users"
+              initialSortKey="created_at"
+              initialSortDirection="desc"
+              initialPageSize={12}
+              emptyMessage="No users matched your search."
+            />
+          </SectionCard>
+        )
+      case 'trip-repair':
+        return (
+          <SectionCard
+            title="Trip Repair"
+            subtitle="Search trips, inspect timeline order, and normalize sequence numbers when old data got out of sync."
+            Icon={Wrench}
+          >
+            <div className="space-y-5">
+              <form onSubmit={handleTripSearch} className="flex flex-wrap gap-3">
+                <input
+                  value={tripQuery}
+                  onChange={(event) => setTripQuery(event.target.value)}
+                  placeholder="Search trip title, owner, or country from the server"
+                  className="min-w-[280px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
+                />
+                <Button type="submit" variant="secondary">Search Trips</Button>
+              </form>
+
+              <AdminDataTable
+                title="Trips"
+                columns={tripColumns}
+                rows={trips}
+                rowKey="trip_id"
+                searchPlaceholder="Filter loaded trips in the table"
+                initialSortKey="updated_at"
+                initialSortDirection="desc"
+                initialPageSize={12}
+                emptyMessage="No trips matched your search."
+              />
+
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                {!selectedTripId ? (
+                  <div className="flex min-h-[14rem] items-center justify-center text-sm text-slate-500">
+                    Pick a trip from the table to inspect its points and segments.
+                  </div>
+                ) : tripDetailLoading ? (
+                  <div className="flex min-h-[14rem] items-center justify-center">
+                    <LoadingSpinner size="lg" />
+                  </div>
+                ) : !tripDetail ? (
+                  <div className="flex min-h-[14rem] items-center justify-center text-sm text-slate-500">
+                    Trip detail could not be loaded.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-semibold text-slate-800">{tripDetail.trip?.title}</p>
+                        <p className="text-sm text-slate-500">
+                          {tripDetail.trip?.owner_email || tripDetail.trip?.owner_username || '-'} {'\u00b7'} {tripDetail.points?.length || 0} points {'\u00b7'} {tripDetail.segments?.length || 0} segments
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => handleNormalizeTrip(selectedTripId)}
+                        loading={normalizingTripId === selectedTripId}
+                      >
+                        <UserCog className="h-4 w-4" />
+                        Normalize Sequence
+                      </Button>
+                    </div>
+
+                    <div className="grid gap-4 2xl:grid-cols-2">
+                      <AdminDataTable
+                        title="Trip Points"
+                        columns={pointColumns}
+                        rows={tripDetail.points || []}
+                        rowKey="id"
+                        searchPlaceholder="Search place, city, country, or date"
+                        initialSortKey="sequence_no"
+                        initialSortDirection="asc"
+                        initialPageSize={8}
+                        emptyMessage="No points were found for this trip."
+                      />
+                      <AdminDataTable
+                        title="Trip Segments"
+                        columns={segmentColumns}
+                        rows={tripDetail.segments || []}
+                        rowKey="id"
+                        searchPlaceholder="Search method or point ids"
+                        initialSortKey="id"
+                        initialSortDirection="asc"
+                        initialPageSize={8}
+                        emptyMessage="No segments were found for this trip."
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </SectionCard>
+        )
+      default:
+        return null
+    }
+  }
 
   if (loading) {
     return <Layout><div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div></Layout>
@@ -771,369 +1374,52 @@ export default function AdminToolsPage() {
           </div>
         ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <StatCard label="Trips" value={systemStatus?.trip_count || 0} hint={`${systemStatus?.point_count || 0} points`} />
-          <StatCard label="Route Cache" value={systemStatus?.route_cache_count || 0} hint={`${systemStatus?.segment_count || 0} segments`} />
-          <StatCard label="Datasets" value={dataHealth?.summary?.dataset_count || 0} hint={`${dataHealth?.summary?.countries_with_local_data || 0} countries with local data`} />
-          <StatCard label="Aliases" value={systemStatus?.search_alias_count || 0} hint={`${aliases.length} loaded`} />
-          <StatCard label="Disk Free" value={`${systemStatus?.disk_free_mb || 0} MB`} hint={`${systemStatus?.backup_size_mb || 0} MB backups`} />
-        </div>
-
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-          <div className="space-y-5">
-            <SectionCard
-              title="System Status"
-              subtitle="Quick backend and data storage health."
-              Icon={Stethoscope}
-              actions={(
-                <div className="flex flex-wrap gap-2">
-                  <Link to="/saved-routes" className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">Saved Routes</Link>
-                  <Link to="/country-route-policies" className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">Policies</Link>
-                  <Link to="/geojson-imports" className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">GeoJSON Imports</Link>
-                </div>
-              )}
-            >
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Database</p>
-                  <p className="mt-1 break-all text-sm text-slate-700">{systemStatus?.database_path || '-'}</p>
-                  <p className="mt-2 text-xs text-slate-500">Size: {systemStatus?.database_size_mb || 0} MB</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Dataset Root</p>
-                  <p className="mt-1 break-all text-sm text-slate-700">{systemStatus?.dataset_root || '-'}</p>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Active imports: {systemStatus?.active_import_tasks || 0} {'\u00b7'} Dataset size: {systemStatus?.dataset_size_mb || 0} MB
-                  </p>
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard
-              title="Data Health"
-              subtitle="Sortable table for country coverage, local dataset counts, and route-cache footprint."
-              Icon={Database}
-            >
-              <AdminDataTable
-                title="Country Health"
-                columns={countryHealthColumns}
-                rows={dataHealth?.countries || []}
-                rowKey="country_key"
-                searchPlaceholder="Search country, continent, or route mode"
-                initialSortKey="dataset_count"
-                initialSortDirection="desc"
-                emptyMessage="No country health data is available yet."
-              />
-            </SectionCard>
-
-            <SectionCard
-              title="Task History"
-              subtitle="This table now uses the same single task-history source as the GeoJSON Import page."
-              Icon={History}
-            >
-              <AdminDataTable
-                title="Import Tasks"
-                columns={importHistoryColumns}
-                rows={importHistory}
-                rowKey="id"
-                searchPlaceholder="Search country, city, dataset key, stage, or status"
-                initialSortKey="created_at"
-                initialSortDirection="desc"
-                emptyMessage="No import tasks are available yet."
-              />
-            </SectionCard>
-
-            <SectionCard
-              title="Broken Route Cache"
-              subtitle="Pick multiple broken cache rows and delete only the ones you selected."
-              Icon={BadgeAlert}
-              actions={(
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={handleBrokenRouteDelete}
-                  loading={cleanupLoading}
-                  disabled={!selectedBrokenRouteIds.length}
-                >
-                  Delete Selected {selectedBrokenRouteIds.length || 0}
-                </Button>
-              )}
-            >
-              {selectedBrokenRouteIds.length > 0 ? (
-                <p className="mb-4 text-xs text-slate-500">
-                  Selected route ids: {selectedBrokenRouteIds.join(', ')}
-                </p>
-              ) : null}
-              <AdminDataTable
-                title="Broken Routes"
-                columns={brokenRouteColumns}
-                rows={brokenRoutes}
-                rowKey="id"
-                searchPlaceholder="Search cache key, provider, or country"
-                initialSortKey="created_at"
-                initialSortDirection="desc"
-                emptyMessage="No broken route cache rows were found."
-              />
-            </SectionCard>
-          </div>
-
-          <div className="space-y-5">
-            <SectionCard
-              title="Bulk Route Policy"
-              subtitle="Use the table like a data-table grid: search, sort, pick countries, then apply one train mode."
-              Icon={Settings2}
-              actions={(
-                <Button size="sm" onClick={handleBulkApply} loading={bulkSaving} disabled={!selectedCountryKeys.length}>
-                  Apply To {selectedCountryKeys.length || 0}
-                </Button>
-              )}
-            >
-              <div className="mb-4 flex flex-wrap items-center gap-3">
-                <select
-                  value={bulkMode}
-                  onChange={(event) => {
-                    setBulkMode(event.target.value)
-                    setError('')
-                  }}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                >
-                  {Object.entries(MODE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-                {selectedCountries.length > 0 ? (
-                  <p className="text-xs text-slate-500">
-                    Selected: {selectedCountries.map((item) => item.country_name).join(', ')}
-                  </p>
-                ) : null}
-              </div>
-              <AdminDataTable
-                title="Policy Countries"
-                columns={policyColumns}
-                rows={policies}
-                rowKey="country_key"
-                searchPlaceholder="Search country, continent, city dataset, or mode"
-                initialSortKey="country_name"
-                initialSortDirection="asc"
-                emptyMessage="No route policy rows are available yet."
-              />
-            </SectionCard>
-
-            <SectionCard
-              title="Search Alias Overrides"
-              subtitle="For a special case, add one alias row per search spelling and point all of them to the same real coordinates."
-              Icon={Link2}
-            >
-              <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                <div className="flex items-start gap-2">
-                  <Info className="mt-0.5 h-4 w-4 text-sky-700" />
-                  <div className="space-y-2 text-sm text-sky-900">
-                    <p>
-                      Example workflow: if users search <strong>Grutschalp</strong>, <strong>Gruetschalp</strong>, and <strong>Gr\u00fctschalp</strong>, create one row for each alias but keep the same resolved place and coordinates.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {SPECIAL_CASE_EXAMPLES.map((example) => (
-                        <button
-                          key={example.label}
-                          type="button"
-                          onClick={() => fillAliasExample(example)}
-                          className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
-                        >
-                          Use {example.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <form onSubmit={handleAliasSubmit} className="grid gap-3 md:grid-cols-2">
-                <input
-                  value={aliasForm.alias}
-                  onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
-                  placeholder="Alias text, for example Grutschalp"
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                />
-                <select
-                  value={aliasForm.method}
-                  onChange={(event) => setAliasForm((current) => ({ ...current, method: event.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                >
-                  {ALIAS_METHOD_OPTIONS.map((option) => (
-                    <option key={option.label} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <input
-                  value={aliasForm.place_name}
-                  onChange={(event) => setAliasForm((current) => ({ ...current, place_name: event.target.value }))}
-                  placeholder="Resolved place name, for example Grütschalp"
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                />
-                <input
-                  value={aliasForm.city}
-                  onChange={(event) => setAliasForm((current) => ({ ...current, city: event.target.value }))}
-                  placeholder="City"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                />
-                <input
-                  value={aliasForm.country}
-                  onChange={(event) => setAliasForm((current) => ({ ...current, country: event.target.value }))}
-                  placeholder="Country"
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                />
-                <input
-                  value={aliasForm.notes}
-                  onChange={(event) => setAliasForm((current) => ({ ...current, notes: event.target.value }))}
-                  placeholder="Notes, for example special lift alias"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                />
-                <input
-                  type="number"
-                  step="any"
-                  value={aliasForm.latitude}
-                  onChange={(event) => setAliasForm((current) => ({ ...current, latitude: event.target.value }))}
-                  placeholder="Latitude"
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                />
-                <input
-                  type="number"
-                  step="any"
-                  value={aliasForm.longitude}
-                  onChange={(event) => setAliasForm((current) => ({ ...current, longitude: event.target.value }))}
-                  placeholder="Longitude"
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-                />
-                <div className="md:col-span-2">
-                  <Button type="submit" loading={aliasSubmitting}>Create Alias</Button>
-                </div>
-              </form>
-
-              <div className="mt-5">
-                <AdminDataTable
-                  title="Alias Overrides"
-                  columns={aliasColumns}
-                  rows={aliases}
-                  rowKey="id"
-                  searchPlaceholder="Search alias, resolved place, country, or notes"
-                  initialSortKey="alias"
-                  initialSortDirection="asc"
-                  emptyMessage="No alias overrides have been created yet."
-                />
-              </div>
-            </SectionCard>
-
-            <SectionCard
-              title="Audit Log"
-              subtitle="Newest admin and content change records in one sortable table."
-              Icon={FileSearch}
-            >
-              <AdminDataTable
-                title="Audit Logs"
-                columns={auditColumns}
-                rows={auditLogs}
-                rowKey="id"
-                searchPlaceholder="Search action, actor, resource, or id"
-                initialSortKey="created_at"
-                initialSortDirection="desc"
-                emptyMessage="No audit records are available yet."
-              />
-            </SectionCard>
-          </div>
-        </div>
-
-        <SectionCard
-          title="Trip Repair"
-          subtitle="Search trips, inspect timeline order, and normalize sequence numbers when old data got out of sync."
-          Icon={Wrench}
-        >
-          <div className="space-y-5">
-            <form onSubmit={handleTripSearch} className="flex flex-wrap gap-3">
-              <input
-                value={tripQuery}
-                onChange={(event) => setTripQuery(event.target.value)}
-                placeholder="Search trip title, owner, or country from the server"
-                className="min-w-[280px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none"
-              />
-              <Button type="submit" variant="secondary">Search Trips</Button>
-            </form>
-
-            <AdminDataTable
-              title="Trips"
-              columns={tripColumns}
-              rows={trips}
-              rowKey="trip_id"
-              searchPlaceholder="Filter loaded trips in the table"
-              initialSortKey="updated_at"
-              initialSortDirection="desc"
-              emptyMessage="No trips matched your search."
-            />
-
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-              {!selectedTripId ? (
-                <div className="flex min-h-[14rem] items-center justify-center text-sm text-slate-500">
-                  Pick a trip from the table to inspect its points and segments.
-                </div>
-              ) : tripDetailLoading ? (
-                <div className="flex min-h-[14rem] items-center justify-center">
-                  <LoadingSpinner size="lg" />
-                </div>
-              ) : !tripDetail ? (
-                <div className="flex min-h-[14rem] items-center justify-center text-sm text-slate-500">
-                  Trip detail could not be loaded.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-semibold text-slate-800">{tripDetail.trip?.title}</p>
-                      <p className="text-sm text-slate-500">
-                        {tripDetail.trip?.owner_email || tripDetail.trip?.owner_username || '-'} {'\u00b7'} {tripDetail.points?.length || 0} points {'\u00b7'} {tripDetail.segments?.length || 0} segments
+        <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="border-b border-slate-100 px-3 pb-3">
+              <p className="text-sm font-semibold text-slate-800">Admin Sections</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Open one feature at a time for a wider workspace.
+              </p>
+            </div>
+            <nav className="mt-3 space-y-1">
+              {sections.map(({ key, label, description, Icon }) => {
+                const isActive = key === activeSection
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setActiveSection(key)}
+                    className={`flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition ${
+                      isActive
+                        ? 'bg-primary-50 text-primary-800'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${isActive ? 'text-primary-600' : 'text-slate-400'}`} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{label}</p>
+                      <p className={`mt-1 text-xs ${isActive ? 'text-primary-700/80' : 'text-slate-500'}`}>
+                        {description}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleNormalizeTrip(selectedTripId)}
-                      loading={normalizingTripId === selectedTripId}
-                    >
-                      <UserCog className="h-4 w-4" />
-                      Normalize Sequence
-                    </Button>
-                  </div>
+                  </button>
+                )
+              })}
+            </nav>
+          </aside>
 
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <AdminDataTable
-                      title="Trip Points"
-                      columns={pointColumns}
-                      rows={tripDetail.points || []}
-                      rowKey="id"
-                      searchPlaceholder="Search place, city, country, or date"
-                      initialSortKey="sequence_no"
-                      initialSortDirection="asc"
-                      emptyMessage="No points were found for this trip."
-                      initialPageSize={6}
-                    />
-                    <AdminDataTable
-                      title="Trip Segments"
-                      columns={segmentColumns}
-                      rows={tripDetail.segments || []}
-                      rowKey="id"
-                      searchPlaceholder="Search method or point ids"
-                      initialSortKey="id"
-                      initialSortDirection="asc"
-                      emptyMessage="No segments were found for this trip."
-                      initialPageSize={6}
-                    />
-                  </div>
-                </div>
-              )}
+          <div className="min-w-0 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <activeSectionMeta.Icon className="h-4 w-4 text-primary-600" />
+                {activeSectionMeta.label}
+              </div>
+              <p className="mt-1 text-sm text-slate-500">{activeSectionMeta.description}</p>
             </div>
+            {renderActiveSection()}
           </div>
-        </SectionCard>
+        </div>
       </div>
     </Layout>
   )

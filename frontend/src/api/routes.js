@@ -27,6 +27,8 @@ export const routesApi = {
   adminDeleteSearchAlias: (aliasId) => client.delete(`/admin/search-aliases/${aliasId}`).then((r) => r.data),
   adminAuditLogs: (params) => client.get('/admin/audit-logs', { params }).then((r) => r.data),
   adminExport: (params) => client.get('/admin/export', { params }).then((r) => r.data),
+  adminUsers: (params) => client.get('/admin/users', { params }).then((r) => r.data),
+  adminUpdateUser: (userId, payload) => client.patch(`/admin/users/${userId}`, payload).then((r) => r.data),
   adminTrips: (params) => client.get('/admin/trips', { params }).then((r) => r.data),
   adminTripDetail: (tripId) => client.get(`/admin/trips/${tripId}`).then((r) => r.data),
   adminNormalizeTripSequence: (tripId) => client.post(`/admin/trips/${tripId}/normalize-sequence`).then((r) => r.data),

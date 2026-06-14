@@ -67,6 +67,7 @@ export default function AddPointPage() {
   const [latestPointFocus, setLatestPointFocus] = useState(null)
   const [latestPointCountry, setLatestPointCountry] = useState('')
   const [previousPoint, setPreviousPoint] = useState(null)
+  const [insertContext, setInsertContext] = useState(null)
   const [visitedCountries, setVisitedCountries] = useState([])
   const [routeConfirm, setRouteConfirm] = useState({ open: false, message: '', canConfirm: true, title: 'No Route Found' })
 
@@ -74,6 +75,7 @@ export default function AddPointPage() {
   const submittedRef = useRef(false)
   const previousTravelMethodRef = useRef('')
   const routeConfirmResolverRef = useRef(null)
+  const insertAfterPointId = Number(searchParams.get('insertAfter') || 0) || null
 
   const searchCountriesWithinTrip = useCallback(async (text) => {
     const query = text.trim().toLowerCase()
@@ -131,13 +133,41 @@ export default function AddPointPage() {
     ]).then(([tripData, points]) => {
       setTrip(tripData)
       const sortedPoints = [...points].sort((a, b) => b.sequence_no - a.sequence_no)
+      const orderedPoints = [...points].sort((a, b) => a.sequence_no - b.sequence_no)
       const latestPoint = sortedPoints.find((point) => point.latitude && point.longitude)
-      setPreviousPoint(latestPoint || null)
       const uniqueCountries = [...new Set(
         sortedPoints.map((p) => p.country).filter(Boolean)
       )].sort()
       setVisitedCountries(uniqueCountries)
-      if (latestPoint) {
+      if (insertAfterPointId) {
+        const insertIndex = orderedPoints.findIndex((point) => point.id === insertAfterPointId)
+        const afterPoint = insertIndex >= 0 ? orderedPoints[insertIndex] : null
+        const beforePoint = insertIndex >= 0 && insertIndex < orderedPoints.length - 1
+          ? orderedPoints[insertIndex + 1]
+          : null
+        setPreviousPoint(afterPoint || null)
+        setInsertContext(afterPoint ? {
+          afterPointId: afterPoint.id,
+          afterPointName: afterPoint.place_name,
+          beforePointName: beforePoint?.place_name || null,
+          minDate: afterPoint.visit_date || tripData?.start_date || '',
+          maxDate: beforePoint?.visit_date || tripData?.end_date || '',
+        } : null)
+        if (afterPoint?.latitude && afterPoint?.longitude) {
+          setLatestPointFocus({
+            lat: Number(afterPoint.latitude),
+            lng: Number(afterPoint.longitude),
+            zoom: 9,
+          })
+        }
+        setLatestPointCountry(afterPoint?.country || '')
+        setForm((current) => current.visit_date ? current : ({
+          ...current,
+          visit_date: beforePoint?.visit_date || afterPoint?.visit_date || tripData?.start_date || '',
+        }))
+      } else if (latestPoint) {
+        setPreviousPoint(latestPoint || null)
+        setInsertContext(null)
         setLatestPointFocus({
           lat: Number(latestPoint.latitude),
           lng: Number(latestPoint.longitude),
@@ -149,6 +179,8 @@ export default function AddPointPage() {
           visit_date: latestPoint.visit_date || tripData?.start_date || '',
         }))
       } else if (tripData?.starting_latitude != null && tripData?.starting_longitude != null) {
+        setPreviousPoint(null)
+        setInsertContext(null)
         setLatestPointFocus({
           lat: Number(tripData.starting_latitude),
           lng: Number(tripData.starting_longitude),
@@ -160,6 +192,8 @@ export default function AddPointPage() {
           visit_date: tripData?.start_date || '',
         }))
       } else if (tripData?.start_date) {
+        setPreviousPoint(null)
+        setInsertContext(null)
         setForm((current) => current.visit_date ? current : ({
           ...current,
           visit_date: tripData.start_date,
@@ -417,14 +451,20 @@ export default function AddPointPage() {
     reverseGeocodeMapPick(lat, lon, form.country || null)
   }
 
-  const appendMinVisitDate = previousPoint?.visit_date || trip?.start_date || ''
+  const minVisitDate = insertContext?.minDate || previousPoint?.visit_date || trip?.start_date || ''
+  const maxVisitDate = insertContext?.maxDate || trip?.end_date || ''
   const dateError = getVisitDateRangeError(form.visit_date, trip, {
-    minDate: appendMinVisitDate || undefined,
+    minDate: minVisitDate || undefined,
+    maxDate: maxVisitDate || undefined,
   })
 
-  const buildReturnUrl = (focusTarget = null) => {
+  const buildReturnUrl = (focusTarget = null, options = {}) => {
+    const { includeRouteNotice = false } = options
     const returnTo = searchParams.get('returnTo') || 'timeline'
     const params = new URLSearchParams({ tab: returnTo })
+    if (includeRouteNotice) {
+      params.set('routeNotice', '1')
+    }
     if (
       returnTo === 'map'
       && focusTarget
@@ -495,6 +535,7 @@ export default function AddPointPage() {
         latitude: form.latitude !== '' ? parseFloat(form.latitude) : null,
         longitude: form.longitude !== '' ? parseFloat(form.longitude) : null,
         image_url: form.image_url || null,
+        insert_after_point_id: insertContext?.afterPointId || null,
         travel_method: form.travel_method || null,
       }
       await timelineApi.addPoint(tripId, payload)
@@ -504,7 +545,7 @@ export default function AddPointPage() {
         lat: payload.latitude ?? Number(form.latitude),
         lng: payload.longitude ?? Number(form.longitude),
         zoom: 13,
-      }))
+      }, { includeRouteNotice: true }))
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to add location')
     } finally {
@@ -526,16 +567,24 @@ export default function AddPointPage() {
       />
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center gap-3">
-          <Link to={`/trips/${tripId}`} className="p-2 hover:bg-slate-100 rounded-lg">
+          <Link to={buildReturnUrl()} className="p-2 hover:bg-slate-100 rounded-lg">
             <ArrowLeft className="w-5 h-5 text-slate-500" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Add Location</h1>
+            <h1 className="text-2xl font-bold text-slate-800">
+              {insertContext ? 'Add Location Between Stops' : 'Add Location'}
+            </h1>
             {trip && (trip.start_date || trip.end_date) && (
               <p className="text-xs text-slate-400 mt-0.5">
                 Trip date range: {trip.start_date || '-'} to {trip.end_date || '-'}
               </p>
             )}
+            {insertContext ? (
+              <p className="text-xs text-primary-600 mt-1">
+                This stop will be inserted after {insertContext.afterPointName}
+                {insertContext.beforePointName ? ` and before ${insertContext.beforePointName}` : ''}.
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -715,16 +764,18 @@ export default function AddPointPage() {
               value={form.visit_date}
               onChange={set('visit_date')}
               required
-              min={appendMinVisitDate || undefined}
-              max={trip?.end_date || undefined}
+              min={minVisitDate || undefined}
+              max={maxVisitDate || undefined}
             />
 
             {dateError ? (
               <p className="text-xs text-red-500 -mt-2">{dateError}</p>
             ) : (
-              appendMinVisitDate && trip?.end_date && (
+              minVisitDate && maxVisitDate && (
                 <p className="text-xs text-slate-400 -mt-2">
-                  New locations can use dates from {appendMinVisitDate} to {trip.end_date}. Earlier dates belong to already-added locations.
+                  {insertContext
+                    ? `This timeline slot accepts dates from ${minVisitDate} to ${maxVisitDate}.`
+                    : `New locations can use dates from ${minVisitDate} to ${maxVisitDate}. Earlier dates belong to already-added locations.`}
                 </p>
               )
             )}
@@ -796,10 +847,10 @@ export default function AddPointPage() {
               className="flex-1"
               size="lg"
             >
-              Add location
+              {insertContext ? 'Insert location' : 'Add location'}
             </Button>
             <Link
-              to={`/trips/${tripId}`}
+              to={buildReturnUrl()}
               onClick={(event) => {
                 if (loading) event.preventDefault()
               }}

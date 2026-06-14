@@ -1,0 +1,155 @@
+Travel Diary Deployment SOP
+
+Use this checklist whenever you want to deploy new code to the droplet.
+
+==================================================
+A. Normal Code-Only Update
+==================================================
+
+Run on your local machine in:
+C:\Users\hafiz\Desktop\UM5G\traveldiary
+
+Commands:
+
+git status
+git add .
+git commit -m "Describe the change"
+git push origin main
+
+GitHub Actions will deploy automatically after push.
+
+Check on the droplet:
+
+cd /var/www/traveldiary
+git log -1 --oneline
+systemctl status traveldiary.service --no-pager
+journalctl -u traveldiary.service -n 80 --no-pager
+curl http://127.0.0.1:8000/health
+
+Success means:
+- latest commit matches your push
+- service is active
+- /health returns {"status":"healthy"}
+
+==================================================
+B. If backend .env changed
+==================================================
+
+Do not commit backend/.env to GitHub.
+
+Copy the production backend env to the droplet:
+
+scp .\backend\.env root@YOUR_DROPLET_IP:/var/www/traveldiary/backend/.env
+
+Then on the droplet:
+
+cd /var/www/traveldiary
+./scripts/deploy.sh
+
+This restarts backend with the new env values.
+
+==================================================
+C. If frontend .env changed
+==================================================
+
+Do not commit frontend/.env to GitHub.
+
+Typical values:
+- local: VITE_API_URL=http://localhost:8000
+- droplet: VITE_API_URL=/api
+
+Copy the production frontend env to the droplet:
+
+scp .\frontend\.env root@YOUR_DROPLET_IP:/var/www/traveldiary/frontend/.env
+
+Then rebuild on the droplet:
+
+cd /var/www/traveldiary
+./scripts/deploy.sh
+
+This is required because Vite reads env at build time.
+
+==================================================
+D. If GeoJSON data changed
+==================================================
+
+Do not push GeoJSON to GitHub.
+
+Create archive locally:
+
+tar -czf hotosm_chn_railways_osm_gpkg.tgz -C backend/gpkg hotosm_chn_railways_osm_gpkg
+scp .\hotosm_chn_railways_osm_gpkg.tgz root@YOUR_DROPLET_IP:/tmp/
+
+Then on the droplet:
+
+rm -rf /opt/traveldiary-data/hotosm_chn_railways_osm_gpkg
+tar -xzf /tmp/hotosm_chn_railways_osm_gpkg.tgz -C /opt/traveldiary-data
+ln -sfn /opt/traveldiary-data/hotosm_chn_railways_osm_gpkg /var/www/traveldiary/backend/gpkg/hotosm_chn_railways_osm_gpkg
+systemctl restart traveldiary.service
+
+Verify:
+
+ls -l /var/www/traveldiary/backend/gpkg
+curl http://127.0.0.1:8000/health
+
+==================================================
+E. Full Safe Flow
+==================================================
+
+1. Change code locally.
+2. Run local tests if needed.
+3. Run git status.
+4. Confirm .env, backend/gpkg, .venv, frontend/dist, and frontend/node_modules are not being committed.
+5. Run git add .
+6. Run git commit -m "Describe change"
+7. Run git push origin main
+8. Watch GitHub Actions
+9. On droplet run:
+
+cd /var/www/traveldiary
+git log -1 --oneline
+systemctl status traveldiary.service --no-pager
+journalctl -u traveldiary.service -n 80 --no-pager
+curl http://127.0.0.1:8000/health
+
+10. Open the site and test the changed feature.
+
+==================================================
+F. Rules To Remember
+==================================================
+
+- Code goes through GitHub.
+- Backend secrets stay in droplet backend/.env.
+- Frontend production env stays in droplet frontend/.env.
+- GeoJSON stays on droplet disk, not GitHub.
+- If frontend env changes, rebuild is required.
+- If backend env changes, restart is required.
+
+==================================================
+G. Quick Command Summary
+==================================================
+
+Code only:
+
+git add .
+git commit -m "message"
+git push origin main
+
+Backend env changed:
+
+scp .\backend\.env root@YOUR_DROPLET_IP:/var/www/traveldiary/backend/.env
+
+Frontend env changed:
+
+scp .\frontend\.env root@YOUR_DROPLET_IP:/var/www/traveldiary/frontend/.env
+
+Rebuild/restart on droplet:
+
+cd /var/www/traveldiary
+./scripts/deploy.sh
+
+Verify:
+
+git log -1 --oneline
+systemctl status traveldiary.service --no-pager
+curl http://127.0.0.1:8000/health

@@ -9,8 +9,6 @@ import SearchableLocationInput from '../../components/ui/SearchableLocationInput
 import { searchCities, searchCountries } from '../../components/ui/locationSearch'
 import { routesApi } from '../../api/routes'
 import { useAuth } from '../../contexts/AuthContext'
-
-const ADMIN_EMAIL = 'hafiz.shadowfiend@gmail.com'
 const LARGE_RAIL_COUNTRY_KEYS = new Set([
   'china',
   'united states',
@@ -99,7 +97,7 @@ export default function GeoJsonImportPage() {
   const [error, setError] = useState('')
   const [overwritePrompt, setOverwritePrompt] = useState(null)
 
-  const isAllowed = (user?.email || '').toLowerCase() === ADMIN_EMAIL
+  const isAllowed = Boolean(user?.is_admin)
   const normalizedCountryName = countryName.trim().toLowerCase()
   const isAirportImport = importType === 'airport'
   const requiresRailSubdivision = !isAirportImport && railImportNeedsSubdivision(countryName)

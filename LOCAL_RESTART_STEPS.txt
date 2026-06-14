@@ -1,0 +1,55 @@
+Local Restart Steps
+
+Use 2 terminals.
+
+==================================================
+1. Restart Backend
+==================================================
+
+Important:
+Use `backend\.venv`, not the repo root `.venv`.
+The root `.venv` does not have the backend packages installed.
+
+Option A: activate the backend venv first
+
+cd backend
+.\.venv\Scripts\Activate.ps1
+python run.py
+
+Option B: run Python directly without activating
+
+cd C:\Users\hafiz\Desktop\UM5G\traveldiary\backend
+.\.venv\Scripts\python.exe run.py
+
+If needed, try:
+
+cd C:\Users\hafiz\Desktop\UM5G\traveldiary\backend
+.\.venv\Scripts\python.exe .\run.py
+
+Backend should run at:
+http://localhost:8000
+
+Docs:
+http://localhost:8000/docs
+
+==================================================
+2. Restart Frontend
+==================================================
+
+Open another terminal:
+
+cd C:\Users\hafiz\Desktop\UM5G\traveldiary\frontend
+npm run dev
+
+Frontend should run at:
+http://localhost:5173
+
+==================================================
+3. If already running
+==================================================
+
+In each running terminal, press:
+
+Ctrl + C
+
+Then start backend and frontend again using the commands above.

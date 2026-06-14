@@ -18,9 +18,12 @@ class Trip(Base):
     starting_country = Column(String(255), nullable=True)
     starting_latitude = Column(Float, nullable=True)
     starting_longitude = Column(Float, nullable=True)
+    travel_companions = Column(String(255), nullable=True)
     planned_countries = Column(JSON, nullable=True)
     cover_image_url = Column(String(500), nullable=True)
-    visibility = Column(String(10), default="private")
+    visibility = Column(String(12), default="private")
+    share_slug = Column(String(64), unique=True, index=True, nullable=True)
+    shared_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -35,4 +38,15 @@ class Trip(Base):
         "TravelSegment",
         back_populates="trip",
         cascade="all, delete-orphan",
+    )
+    public_views = relationship(
+        "TripPublicView",
+        back_populates="trip",
+        cascade="all, delete-orphan",
+    )
+    journal = relationship(
+        "TripJournal",
+        back_populates="trip",
+        cascade="all, delete-orphan",
+        uselist=False,
     )

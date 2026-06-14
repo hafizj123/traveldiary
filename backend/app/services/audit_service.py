@@ -7,12 +7,19 @@ from sqlalchemy.orm import Session
 
 from ..models.admin_audit_log import AdminAuditLog
 from ..models.user import User
+from ..config import settings
 
-ADMIN_EMAIL = "hafiz.shadowfiend@gmail.com"
+ADMIN_EMAIL = settings.ADMIN_EMAIL
 
 
 def is_admin_email(email: Optional[str]) -> bool:
     return " ".join(str(email or "").strip().lower().split()) == ADMIN_EMAIL
+
+
+def is_admin_user(user: Optional[User]) -> bool:
+    if not user:
+        return False
+    return bool(getattr(user, "is_admin", False)) or is_admin_email(getattr(user, "email", None))
 
 
 def log_audit_event(

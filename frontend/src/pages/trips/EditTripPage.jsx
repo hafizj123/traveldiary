@@ -33,6 +33,7 @@ export default function EditTripPage() {
         starting_country: t.starting_country || '',
         starting_latitude: t.starting_latitude ?? '',
         starting_longitude: t.starting_longitude ?? '',
+        travel_companions: t.travel_companions || '',
         planned_countries: t.planned_countries || [],
         cover_image_url: t.cover_image_url || '',
         visibility:      t.visibility,
@@ -106,6 +107,12 @@ export default function EditTripPage() {
             <textarea value={form.description} onChange={set('description')} rows={3}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none" />
           </div>
+          <Input
+            label="Who joined this trip?"
+            value={form.travel_companions}
+            onChange={set('travel_companions')}
+            placeholder="e.g. My wife and I, Solo trip, My parents and I"
+          />
           <div className="grid grid-cols-2 gap-4">
             <Input label="Start date *" type="date" value={form.start_date} onChange={set('start_date')} required error={errors.start_date} max={form.end_date || undefined} />
             <Input label="End date *"   type="date" value={form.end_date}   onChange={set('end_date')} required error={errors.end_date} min={form.start_date || undefined} />
@@ -165,8 +172,12 @@ export default function EditTripPage() {
             <select value={form.visibility} onChange={set('visibility')}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500">
               <option value="private">Private</option>
-              <option value="public">Public (shareable)</option>
+              <option value="unlisted">Unlisted (link only)</option>
+              <option value="public">Public (discoverable)</option>
             </select>
+            <p className="text-xs text-slate-400">
+              Private stays only in your account. Unlisted works by share link only. Public can also appear in Shared Trips.
+            </p>
           </div>
           <div className="flex gap-3 pt-2">
             <Button type="submit" loading={saving} className="flex-1">Save changes</Button>

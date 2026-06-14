@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel
 
 from ..database import get_db
 from ..models.trip import Trip
@@ -15,6 +16,7 @@ from ..utils.deps import get_current_user
 from ..models.user import User
 from ..services.weather_service import get_weather
 from ..services.r2_service import delete_image
+from ..services.journal_service import sync_trip_journal_media
 from ..services.train_route_service import fetch_and_cache, get_train_route_provider
 
 import logging
@@ -22,6 +24,10 @@ from ..services.audit_service import log_audit_event
 
 router = APIRouter(tags=["timeline"])
 logger = logging.getLogger(__name__)
+
+
+class TimelinePointReorderBody(BaseModel):
+    point_ids: list[int]
 
 
 def _get_trip(trip_id: int, user_id: int, db: Session) -> Trip:
@@ -100,6 +106,36 @@ def _validate_edit_point_date(
         )
 
 
+def _validate_reordered_point_dates(ordered_points: list[TimelinePoint]) -> None:
+    for index, point in enumerate(ordered_points):
+        prev_point = ordered_points[index - 1] if index > 0 else None
+        next_point = ordered_points[index + 1] if index < len(ordered_points) - 1 else None
+        if point.visit_date is None:
+            continue
+        if prev_point and prev_point.visit_date and point.visit_date < prev_point.visit_date:
+            raise HTTPException(
+                400,
+                detail=(
+                    f"Cannot move {point.place_name} before {prev_point.place_name}. "
+                    f"{point.place_name} is dated {point.visit_date} but the stop above is {prev_point.visit_date}. "
+                    f"Edit one of the dates first, or move a different stop."
+                ),
+            )
+        if next_point and next_point.visit_date and point.visit_date > next_point.visit_date:
+            raise HTTPException(
+                400,
+                detail=(
+                    f"Cannot move {point.place_name} after {next_point.place_name}. "
+                    f"{point.place_name} is dated {point.visit_date} but the stop below is {next_point.visit_date}. "
+                    f"Edit one of the dates first, or move a different stop."
+                ),
+            )
+
+
+def _point_by_id(points: list[TimelinePoint], point_id: int) -> Optional[TimelinePoint]:
+    return next((item for item in points if item.id == point_id), None)
+
+
 @router.post("/trips/{trip_id}/points", response_model=TimelinePointResponse, status_code=201)
 async def add_point(
     trip_id: int,
@@ -111,12 +147,38 @@ async def add_point(
     _validate_visit_date_in_trip_range(trip, data.visit_date)
 
     ordered_points = _normalize_trip_sequence_numbers(db, trip_id)
-    prev = ordered_points[-1] if ordered_points else None
-    _validate_append_point_date(prev, data.visit_date)
-
     point_data = data.model_dump(exclude={"travel_method"})
-    if point_data.get("sequence_no") is None:
-        point_data["sequence_no"] = len(ordered_points)
+    insert_after_point_id = point_data.pop("insert_after_point_id", None)
+    prev = None
+    next_point = None
+    split_segment = None
+
+    if insert_after_point_id is not None:
+        prev = _point_by_id(ordered_points, insert_after_point_id)
+        if not prev:
+            raise HTTPException(404, "Insert position not found in this trip")
+        insert_index = next((index for index, item in enumerate(ordered_points) if item.id == insert_after_point_id), None)
+        next_point = ordered_points[insert_index + 1] if insert_index is not None and insert_index < len(ordered_points) - 1 else None
+        if next_point:
+            split_segment = (
+                db.query(TravelSegment)
+                .filter(
+                    TravelSegment.trip_id == trip_id,
+                    TravelSegment.from_point_id == prev.id,
+                    TravelSegment.to_point_id == next_point.id,
+                )
+                .first()
+            )
+        _validate_edit_point_date(prev, next_point, data.visit_date)
+        for point in ordered_points[(insert_index + 1 if insert_index is not None else len(ordered_points)):]:
+            point.sequence_no += 1
+        point_data["sequence_no"] = (prev.sequence_no or 0) + 1
+        db.flush()
+    else:
+        prev = ordered_points[-1] if ordered_points else None
+        _validate_append_point_date(prev, data.visit_date)
+        if point_data.get("sequence_no") is None:
+            point_data["sequence_no"] = len(ordered_points)
 
     weather = None
     if point_data.get("latitude") and point_data.get("longitude"):
@@ -131,22 +193,45 @@ async def add_point(
     db.flush()
 
     created_train_pairs = []
-    # Auto-create segment from previous point
-    if data.travel_method and prev:
+    # Auto-create segment from previous point, or inherit the split segment's method when inserting in between.
+    incoming_method = data.travel_method or (split_segment.travel_method if split_segment else None)
+    incoming_description = split_segment.description if split_segment else None
+    if incoming_method and prev:
         db.add(
             TravelSegment(
                 trip_id=trip_id,
                 from_point_id=prev.id,
                 to_point_id=point.id,
-                travel_method=data.travel_method,
+                travel_method=incoming_method,
+                description=incoming_description,
             )
         )
         if (
-            data.travel_method == "train"
+            incoming_method == "train"
             and prev.latitude and prev.longitude
             and point.latitude and point.longitude
         ):
             created_train_pairs.append((prev, point))
+
+    if split_segment and next_point:
+        outgoing_method = split_segment.travel_method
+        outgoing_description = split_segment.description
+        db.delete(split_segment)
+        db.add(
+            TravelSegment(
+                trip_id=trip_id,
+                from_point_id=point.id,
+                to_point_id=next_point.id,
+                travel_method=outgoing_method,
+                description=outgoing_description,
+            )
+        )
+        if (
+            outgoing_method == "train"
+            and point.latitude and point.longitude
+            and next_point.latitude and next_point.longitude
+        ):
+            created_train_pairs.append((point, next_point))
 
     log_audit_event(
         db,
@@ -158,6 +243,12 @@ async def add_point(
     )
     db.commit()
     db.refresh(point)
+
+    if trip.journal:
+        journal_points = _ordered_trip_points(db, trip_id)
+        if sync_trip_journal_media(trip.journal, trip, journal_points):
+            db.commit()
+
     for from_pt, to_pt in created_train_pairs:
         await fetch_and_cache(
             db,
@@ -193,12 +284,7 @@ async def list_points(
 ):
     from datetime import date, timedelta
     _get_trip(trip_id, user.id, db)
-    points = (
-        db.query(TimelinePoint)
-        .filter(TimelinePoint.trip_id == trip_id)
-        .order_by(TimelinePoint.sequence_no)
-        .all()
-    )
+    points = _normalize_trip_sequence_numbers(db, trip_id)
     # Auto-refresh weather for points whose stored data isn't from the historical archive
     today = date.today()
     for pt in points:
@@ -214,6 +300,90 @@ async def list_points(
                 db.add(pt)
     db.commit()
     return points
+
+
+@router.post("/trips/{trip_id}/points/reorder", response_model=List[TimelinePointResponse])
+async def reorder_points(
+    trip_id: int,
+    payload: TimelinePointReorderBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _get_trip(trip_id, user.id, db)
+    points = _normalize_trip_sequence_numbers(db, trip_id)
+    if not points:
+        raise HTTPException(404, "Trip points not found")
+
+    existing_ids = [point.id for point in points]
+    requested_ids = payload.point_ids
+    if sorted(existing_ids) != sorted(requested_ids) or len(existing_ids) != len(requested_ids):
+        raise HTTPException(400, "Reorder request must include every trip point exactly once")
+
+    point_lookup = {point.id: point for point in points}
+    proposed_points = [point_lookup[point_id] for point_id in requested_ids]
+    _validate_reordered_point_dates(proposed_points)
+    old_incoming_segments = {
+        segment.to_point_id: segment
+        for segment in db.query(TravelSegment).filter(TravelSegment.trip_id == trip_id).all()
+    }
+    changed = 0
+    for index, point_id in enumerate(requested_ids):
+        point = point_lookup[point_id]
+        if point.sequence_no != index:
+            point.sequence_no = index
+            changed += 1
+
+    db.flush()
+
+    db.query(TravelSegment).filter(TravelSegment.trip_id == trip_id).delete(synchronize_session=False)
+    created_train_pairs = []
+    for index in range(1, len(requested_ids)):
+        point_id = requested_ids[index]
+        point = point_lookup[point_id]
+        prev_point = point_lookup[requested_ids[index - 1]]
+        template = old_incoming_segments.get(point_id)
+        if not template:
+            continue
+
+        db.add(
+            TravelSegment(
+                trip_id=trip_id,
+                from_point_id=prev_point.id,
+                to_point_id=point.id,
+                travel_method=template.travel_method,
+                description=template.description,
+            )
+        )
+        if (
+            template.travel_method == "train"
+            and prev_point.latitude and prev_point.longitude
+            and point.latitude and point.longitude
+        ):
+            created_train_pairs.append((prev_point, point))
+
+    log_audit_event(
+        db,
+        user=user,
+        action="reorder_points",
+        resource_type="trip",
+        resource_id=str(trip_id),
+        details={"changed_points": changed, "point_ids": requested_ids},
+    )
+    db.commit()
+    for from_pt, to_pt in created_train_pairs:
+        await fetch_and_cache(
+            db,
+            from_pt.latitude,
+            from_pt.longitude,
+            to_pt.latitude,
+            to_pt.longitude,
+            from_pt.country,
+            to_pt.country,
+        )
+    return [
+        point_lookup[point_id]
+        for point_id in requested_ids
+    ]
 
 
 @router.put("/points/{point_id}", response_model=TimelinePointResponse)
@@ -232,6 +402,7 @@ async def update_point(
     if not point:
         raise HTTPException(404, "Point not found")
 
+    original_image_url = point.image_url
     updates = data.model_dump(exclude_unset=True)
     trip = point.trip
     prev_point, next_point = _neighbor_points_for_point(db, point.trip_id, point.id)
@@ -259,6 +430,18 @@ async def update_point(
     )
     db.commit()
     db.refresh(point)
+
+    if trip.journal:
+        journal_points = _ordered_trip_points(db, point.trip_id)
+        if sync_trip_journal_media(trip.journal, trip, journal_points):
+            db.commit()
+
+    next_image_url = point.image_url
+    if (
+        original_image_url
+        and original_image_url != next_image_url
+    ):
+        await delete_image(original_image_url)
 
     connected_train_segments = db.query(TravelSegment).filter(
         ((TravelSegment.from_point_id == point.id) | (TravelSegment.to_point_id == point.id))
@@ -312,6 +495,7 @@ async def delete_point(
     if not point:
         raise HTTPException(404, "Point not found")
 
+    trip = point.trip
     ordered_points = (
         db.query(TimelinePoint)
         .filter(TimelinePoint.trip_id == point.trip_id)
@@ -374,6 +558,8 @@ async def delete_point(
         (TravelSegment.from_point_id == point_id) | (TravelSegment.to_point_id == point_id)
     ).delete(synchronize_session=False)
     db.delete(point)
+    db.flush()
+    _normalize_trip_sequence_numbers(db, trip_id_value)
     log_audit_event(
         db,
         user=user,
@@ -383,6 +569,11 @@ async def delete_point(
         details={"trip_id": trip_id_value, "place_name": place_name, "visit_date": visit_date},
     )
     db.commit()
+
+    if trip and trip.journal:
+        remaining_points = _ordered_trip_points(db, trip_id_value)
+        if sync_trip_journal_media(trip.journal, trip, remaining_points):
+            db.commit()
 
     if bridged_train_pair:
         from_pt, to_pt = bridged_train_pair

@@ -18,6 +18,7 @@ export default function CreateTripPage() {
     title: '', description: '', start_date: '', end_date: '',
     starting_place_name: '', starting_city: '', starting_country: '',
     starting_latitude: '', starting_longitude: '',
+    travel_companions: '',
     planned_countries: [],
     cover_image_url: '', visibility: 'private',
   })
@@ -107,6 +108,13 @@ export default function CreateTripPage() {
               placeholder="What was this trip about?"
             />
           </div>
+
+          <Input
+            label="Who joined this trip?"
+            value={form.travel_companions}
+            onChange={set('travel_companions')}
+            placeholder="e.g. My wife and I, Solo trip, My parents and I"
+          />
 
           <div className="grid grid-cols-2 gap-4">
             <Input
@@ -211,8 +219,12 @@ export default function CreateTripPage() {
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="private">Private</option>
-              <option value="public">Public (shareable)</option>
+              <option value="unlisted">Unlisted (link only)</option>
+              <option value="public">Public (discoverable)</option>
             </select>
+            <p className="text-xs text-slate-400">
+              Private stays only in your account. Unlisted works by share link only. Public can also appear in Shared Trips.
+            </p>
           </div>
 
           <div className="flex gap-3 pt-2">

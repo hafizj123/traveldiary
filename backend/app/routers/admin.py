@@ -16,12 +16,13 @@ from ..services.admin_service import (
     build_admin_export_snapshot,
     delete_route_cache_rows,
     get_data_health_summary,
+    list_admin_users,
     get_system_status,
     list_admin_audit_rows,
     list_admin_trip_summaries,
     list_broken_route_cache_rows,
 )
-from ..services.audit_service import is_admin_email, log_audit_event
+from ..services.audit_service import is_admin_user, log_audit_event
 from ..services.country_route_policy_service import (
     country_display_name,
     country_key_from_name,
@@ -61,8 +62,13 @@ class SearchAliasCreateBody(BaseModel):
     is_active: bool = True
 
 
+class AdminUserUpdateBody(BaseModel):
+    is_admin: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
 def _require_admin_user(user: User) -> None:
-    if not is_admin_email(user.email):
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
@@ -333,6 +339,89 @@ def get_admin_trips(
 ):
     _require_admin_user(user)
     return {"items": list_admin_trip_summaries(db, query=q, limit=limit)}
+
+
+@router.get("/users")
+def get_admin_users(
+    q: str = Query("", alias="query"),
+    limit: int = Query(120, ge=1, le=500),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _require_admin_user(user)
+    return {"items": list_admin_users(db, query=q, limit=limit)}
+
+
+@router.patch("/users/{user_id}")
+def patch_admin_user(
+    user_id: int,
+    payload: AdminUserUpdateBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _require_admin_user(user)
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if user.id == target.id and (payload.is_admin is not None or payload.is_active is not None):
+        raise HTTPException(status_code=400, detail="You cannot change your own admin or active status from this screen.")
+
+    changed_fields: list[str] = []
+    if payload.is_admin is not None and bool(getattr(target, "is_admin", False)) != payload.is_admin:
+        target.is_admin = payload.is_admin
+        changed_fields.append("is_admin")
+    if payload.is_active is not None and bool(getattr(target, "is_active", True)) != payload.is_active:
+        target.is_active = payload.is_active
+        changed_fields.append("is_active")
+
+    if not changed_fields:
+        return {
+            "item": {
+                "id": target.id,
+                "email": target.email,
+                "username": target.username,
+                "auth_provider": target.auth_provider or "local",
+                "is_verified": bool(target.is_verified),
+                "is_active": bool(getattr(target, "is_active", True)),
+                "is_admin": bool(getattr(target, "is_admin", False)),
+                "avatar_url": getattr(target, "avatar_url", None),
+                "created_at": target.created_at.isoformat() if target.created_at else None,
+                "updated_at": target.updated_at.isoformat() if target.updated_at else None,
+                "last_login_at": target.last_login_at.isoformat() if getattr(target, "last_login_at", None) else None,
+            }
+        }
+
+    log_audit_event(
+        db,
+        user=user,
+        action="update_user_access",
+        resource_type="user",
+        resource_id=str(target.id),
+        details={
+            "updated_fields": changed_fields,
+            "target_email": target.email,
+            "is_admin": bool(getattr(target, "is_admin", False)),
+            "is_active": bool(getattr(target, "is_active", True)),
+        },
+    )
+    db.commit()
+    db.refresh(target)
+    return {
+        "item": {
+            "id": target.id,
+            "email": target.email,
+            "username": target.username,
+            "auth_provider": target.auth_provider or "local",
+            "is_verified": bool(target.is_verified),
+            "is_active": bool(getattr(target, "is_active", True)),
+            "is_admin": bool(getattr(target, "is_admin", False)),
+            "avatar_url": getattr(target, "avatar_url", None),
+            "created_at": target.created_at.isoformat() if target.created_at else None,
+            "updated_at": target.updated_at.isoformat() if target.updated_at else None,
+            "last_login_at": target.last_login_at.isoformat() if getattr(target, "last_login_at", None) else None,
+        }
+    }
 
 
 @router.get("/trips/{trip_id}")

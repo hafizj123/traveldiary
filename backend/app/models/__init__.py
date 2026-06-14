@@ -9,6 +9,8 @@ from .train_station_cache import TrainStationCache
 from .train_station import TrainStation
 from .admin_audit_log import AdminAuditLog
 from .search_alias_override import SearchAliasOverride
+from .trip_public_view import TripPublicView
+from .trip_journal import TripJournal
 
 __all__ = [
     "User",
@@ -22,4 +24,6 @@ __all__ = [
     "TrainStation",
     "AdminAuditLog",
     "SearchAliasOverride",
+    "TripPublicView",
+    "TripJournal",
 ]

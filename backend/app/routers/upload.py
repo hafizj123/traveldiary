@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from pydantic import BaseModel
+from ..services.image_processing import normalize_uploaded_image
 from ..services.r2_service import upload_image, delete_image
 from ..utils.deps import get_current_user
 from ..utils.exif import extract_gps_from_image
@@ -27,7 +28,16 @@ async def upload_image_endpoint(
         raise HTTPException(400, "Only JPEG, PNG, WebP, and HEIC images are allowed")
 
     exif_result = extract_gps_from_image(contents)
-    url = await upload_image(contents, file.filename or "upload.jpg", content_type)
+    try:
+        processed_bytes, processed_filename, processed_type = normalize_uploaded_image(
+            contents,
+            file.filename or "upload.jpg",
+            content_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    url = await upload_image(processed_bytes, processed_filename, processed_type)
 
     response: dict = {"url": url}
     if exif_result:

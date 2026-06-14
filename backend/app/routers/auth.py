@@ -1,7 +1,9 @@
 import re
+import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+import httpx
 
 from ..database import get_db
 from ..models.user import User
@@ -11,6 +13,7 @@ from ..schemas.auth import (
     VerifyOTPRequest,
     ResendOTPRequest,
     LoginRequest,
+    GoogleLoginRequest,
     TokenResponse,
     UserResponse,
 )
@@ -31,6 +34,43 @@ def _auto_username(email: str, db: Session) -> str:
     return username
 
 
+def _unusable_password_hash() -> str:
+    return hash_password(secrets.token_urlsafe(32))
+
+
+async def _verify_google_credential(credential: str) -> dict:
+    if not settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google login is not configured")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"id_token": credential},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Failed to verify Google login") from exc
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+
+    payload = response.json()
+    audience = str(payload.get("aud") or "").strip()
+    if audience != settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=401, detail="Google credential was issued for a different client")
+    if str(payload.get("email_verified")).lower() != "true":
+        raise HTTPException(status_code=403, detail="Google account email is not verified")
+    return payload
+
+
+def _mark_successful_login(user: User, db: Session) -> TokenResponse:
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=403, detail="Account disabled")
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+    token = create_access_token({"sub": str(user.id)})
+    return TokenResponse(access_token=token)
+
+
 @router.post("/register", status_code=201)
 async def register(data: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == data.email).first():
@@ -48,7 +88,10 @@ async def register(data: RegisterRequest, db: Session = Depends(get_db)):
         email=data.email,
         username=username,
         password_hash=hash_password(data.password),
+        auth_provider="local",
         is_verified=False,
+        is_admin=False,
+        is_active=True,
     )
     db.add(user)
     db.commit()
@@ -119,13 +162,60 @@ async def resend_otp(data: ResendOTPRequest, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
-    if not user or not verify_password(data.password, user.password_hash):
+    if not user:
+        raise HTTPException(401, "Invalid email or password")
+    if user.auth_provider == "google":
+        raise HTTPException(400, "This account uses Google sign-in. Continue with Google instead.")
+    if not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "Invalid email or password")
     if not user.is_verified:
         raise HTTPException(403, "Please verify your email first")
+    return _mark_successful_login(user, db)
 
+
+@router.post("/google", response_model=TokenResponse)
+async def google_login(data: GoogleLoginRequest, db: Session = Depends(get_db)):
+    payload = await _verify_google_credential(data.credential)
+    google_sub = str(payload.get("sub") or "").strip()
+    email = str(payload.get("email") or "").strip().lower()
+    if not google_sub or not email:
+        raise HTTPException(status_code=400, detail="Google account did not provide a valid email")
+
+    user = db.query(User).filter(User.google_sub == google_sub).first()
+    if not user:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            if user.google_sub and user.google_sub != google_sub:
+                raise HTTPException(status_code=409, detail="This email is already linked to a different Google account")
+            user.google_sub = google_sub
+            user.avatar_url = str(payload.get("picture") or "").strip() or user.avatar_url
+            user.is_verified = True
+            user.auth_provider = "hybrid" if user.auth_provider == "local" else "google"
+        else:
+            user = User(
+                email=email,
+                username=_auto_username(email, db),
+                password_hash=_unusable_password_hash(),
+                auth_provider="google",
+                google_sub=google_sub,
+                avatar_url=str(payload.get("picture") or "").strip() or None,
+                is_verified=True,
+                is_admin=False,
+                is_active=True,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=403, detail="Account disabled")
+
+    db.add(user)
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+    db.refresh(user)
     token = create_access_token({"sub": str(user.id)})
-    return {"access_token": token, "token_type": "bearer"}
+    return TokenResponse(access_token=token)
 
 
 @router.get("/me", response_model=UserResponse)

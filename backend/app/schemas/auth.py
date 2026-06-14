@@ -23,6 +23,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class GoogleLoginRequest(BaseModel):
+    credential: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -32,7 +36,12 @@ class UserResponse(BaseModel):
     id: int
     email: str
     username: Optional[str] = None
+    auth_provider: str
     is_verified: bool
+    is_admin: bool
+    is_active: bool
+    avatar_url: Optional[str] = None
+    last_login_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

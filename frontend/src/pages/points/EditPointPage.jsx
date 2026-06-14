@@ -592,13 +592,6 @@ export default function EditPointPage() {
       }
 
       submittedRef.current = true
-      if (
-        newlyUploadedRef.current &&
-        originalUrlRef.current &&
-        newlyUploadedRef.current !== originalUrlRef.current
-      ) {
-        uploadApi.deleteImage(originalUrlRef.current).catch(() => {})
-      }
       toast.success('Location updated')
       navigate(buildReturnUrl({
         lat: form.latitude !== '' ? parseFloat(form.latitude) : null,

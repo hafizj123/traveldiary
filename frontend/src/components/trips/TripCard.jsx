@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom'
-import { MapPin, Calendar, Globe, Lock, Unlock } from 'lucide-react'
+import { Calendar, Globe, Lock, Unlock, Link2 } from 'lucide-react'
 import { fmtDateRange } from '../../utils/formatDate'
 
-export default function TripCard({ trip }) {
+export default function TripCard({ trip, to }) {
+  const href = to || `/trips/${trip.id}`
+
   return (
     <Link
-      to={`/trips/${trip.id}`}
+      to={href}
       className="group block bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden"
     >
       {/* Cover image */}
@@ -22,10 +24,13 @@ export default function TripCard({ trip }) {
           </div>
         )}
         <div className="absolute top-2 right-2">
-          {trip.visibility === 'public'
-            ? <span className="flex items-center gap-1 bg-green-500/90 text-white text-xs px-2 py-0.5 rounded-full"><Unlock className="w-3 h-3" />Public</span>
-            : <span className="flex items-center gap-1 bg-black/40 text-white text-xs px-2 py-0.5 rounded-full"><Lock className="w-3 h-3" />Private</span>
-          }
+          {trip.visibility === 'public' ? (
+            <span className="flex items-center gap-1 bg-green-500/90 text-white text-xs px-2 py-0.5 rounded-full"><Unlock className="w-3 h-3" />Public</span>
+          ) : trip.visibility === 'unlisted' ? (
+            <span className="flex items-center gap-1 bg-amber-500/90 text-white text-xs px-2 py-0.5 rounded-full"><Link2 className="w-3 h-3" />Unlisted</span>
+          ) : (
+            <span className="flex items-center gap-1 bg-black/40 text-white text-xs px-2 py-0.5 rounded-full"><Lock className="w-3 h-3" />Private</span>
+          )}
         </div>
       </div>
 
@@ -42,6 +47,9 @@ export default function TripCard({ trip }) {
         {trip.description && (
           <p className="text-sm text-slate-500 line-clamp-2">{trip.description}</p>
         )}
+        {trip.public_stats?.unique_views_total ? (
+          <p className="text-xs text-slate-400">{trip.public_stats.unique_views_total} unique views</p>
+        ) : null}
       </div>
     </Link>
   )

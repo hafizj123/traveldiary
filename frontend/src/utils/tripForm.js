@@ -50,6 +50,7 @@ export function validateTripForm(form) {
       starting_place_name: startingPlaceName,
       starting_country: startingCountry,
       starting_city: (form.starting_city || '').trim(),
+      travel_companions: (form.travel_companions || '').trim(),
       planned_countries: plannedCountries,
     },
   }

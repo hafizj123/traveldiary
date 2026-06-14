@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import Optional
 from pathlib import Path
 
@@ -27,7 +28,15 @@ class Settings(BaseSettings):
 
     OWM_API_KEY: str = ""
     GOOGLE_MAPS_API_KEY: str = ""
+    GOOGLE_CLIENT_ID: str = ""
     GEOAPIFY_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.5-flash"
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4.1-mini"
+    AI_JOURNAL_PROVIDER: str = "gemini"
+    ADMIN_EMAIL: str = "hafiz.shadowfiend@gmail.com"
+    APP_PUBLIC_BASE_URL: str = ""
     CHINA_RAIL_GPKG_PATH: str = ""
     CHINA_RAIL_GPKG_TIMEOUT_SECONDS: float = 5.0
     GEOJSON_ROUTE_TIMEOUT_SECONDS: float = 40.0
@@ -38,6 +47,19 @@ class Settings(BaseSettings):
     EGYPT_STATION_GEOJSON_PATH: str = "backend/gpkg/hotosm_chn_railways_osm_gpkg/geojson_file/egypt/egypt_station.geojson"
 
     DEBUG: bool = True
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_value(cls, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on", "debug", "dev", "development"}:
+                return True
+            if normalized in {"0", "false", "no", "off", "release", "prod", "production"}:
+                return False
+        return value
 
     class Config:
         env_file = str(ENV_FILE)

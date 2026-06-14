@@ -270,6 +270,7 @@ def build_admin_export_snapshot(db: Session, *, include_route_cache: bool = Fals
             }
             for row in list(db.query(SearchAliasOverride).order_by(SearchAliasOverride.id.asc()).all())
         ],
+        "users": list_admin_users(db, limit=1000),
         "audit_logs": list_admin_audit_rows(db, limit=1000),
         "broken_routes": list_broken_route_cache_rows(db, limit=500),
     }
@@ -319,6 +320,41 @@ def list_admin_trip_summaries(db: Session, query: str = "", limit: int = 60) -> 
             "starting_country": trip.starting_country,
             "point_count": point_count,
             "updated_at": trip.updated_at.isoformat() if trip.updated_at else None,
+        })
+        if len(results) >= limit:
+            break
+    return results
+
+
+def list_admin_users(db: Session, query: str = "", limit: int = 200) -> list[dict]:
+    rows = (
+        db.query(User)
+        .order_by(User.created_at.desc(), User.id.desc())
+        .limit(max(limit * 4, 200))
+        .all()
+    )
+    normalized_query = " ".join((query or "").strip().lower().split())
+    results: list[dict] = []
+    for user in rows:
+        haystack = " ".join([
+            str(user.email or ""),
+            str(user.username or ""),
+            str(user.auth_provider or ""),
+        ]).lower()
+        if normalized_query and normalized_query not in haystack:
+            continue
+        results.append({
+            "id": user.id,
+            "email": user.email,
+            "username": user.username,
+            "auth_provider": user.auth_provider or "local",
+            "is_verified": bool(user.is_verified),
+            "is_active": bool(getattr(user, "is_active", True)),
+            "is_admin": bool(getattr(user, "is_admin", False)),
+            "avatar_url": getattr(user, "avatar_url", None),
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+            "last_login_at": user.last_login_at.isoformat() if getattr(user, "last_login_at", None) else None,
         })
         if len(results) >= limit:
             break

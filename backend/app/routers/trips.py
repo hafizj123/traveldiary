@@ -1,16 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
-from typing import Optional
+from typing import List, Optional
 
 from ..database import get_db
 from ..models.trip import Trip
+from ..models.trip_journal import TripJournal
 from ..models.timeline_point import TimelinePoint
-from ..schemas.trip import TripCreate, TripUpdate, TripResponse
+from ..schemas.trip import TripCreate, TripUpdate, TripResponse, ALLOWED_TRIP_VISIBILITY
 from ..utils.deps import get_current_user
 from ..models.user import User
 from ..services.r2_service import delete_image
 from ..services.audit_service import log_audit_event
+from ..services.trip_share_service import ensure_trip_share_state, get_trip_public_stats, normalize_trip_visibility, regenerate_trip_share_slug, build_public_share_url
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -52,6 +53,25 @@ def _normalize_planned_countries(planned_countries, starting_country: Optional[s
     return normalized
 
 
+def _validate_trip_visibility(value: Optional[str]) -> str:
+    raw = " ".join(str(value or "private").strip().lower().split())
+    if raw not in ALLOWED_TRIP_VISIBILITY:
+        raise HTTPException(400, "Invalid trip visibility")
+    return normalize_trip_visibility(raw)
+
+
+def _trip_share_payload(db: Session, trip: Trip) -> dict:
+    public_stats = get_trip_public_stats(db=db, trip_id=trip.id)
+    journal = db.query(TripJournal).filter(TripJournal.trip_id == trip.id).first()
+    return {
+        "share_slug": trip.share_slug,
+        "share_url": build_public_share_url(trip.share_slug),
+        "public_stats": public_stats,
+        "journal_exists": bool(journal),
+        "journal_updated_at": journal.updated_at if journal else None,
+    }
+
+
 def _first_trip_point(db: Session, trip_id: int) -> Optional[TimelinePoint]:
     return (
         db.query(TimelinePoint)
@@ -80,7 +100,9 @@ def create_trip(
 
     trip_payload = data.model_dump()
     trip_payload["planned_countries"] = planned_countries
+    trip_payload["visibility"] = _validate_trip_visibility(data.visibility)
     trip = Trip(**trip_payload, user_id=user.id)
+    ensure_trip_share_state(trip)
     db.add(trip)
     db.flush()
 
@@ -137,6 +159,8 @@ def get_trip(
 
     return {
         **TripResponse.model_validate(trip).model_dump(),
+        **_trip_share_payload(db, trip),
+        "owner_username": user.username,
         "stats": {
             "total_points": len(points),
             "total_countries": len(countries),
@@ -169,9 +193,12 @@ def update_trip(
         updates["planned_countries"] = _normalize_planned_countries(updates.get("planned_countries"), next_country)
         if not updates["planned_countries"]:
             raise HTTPException(400, "At least one planned country is required")
+    if "visibility" in updates:
+        updates["visibility"] = _validate_trip_visibility(updates["visibility"])
 
     for k, v in updates.items():
         setattr(trip, k, v)
+    ensure_trip_share_state(trip)
 
     first_point = _first_trip_point(db, trip.id)
     if first_point:
@@ -193,6 +220,35 @@ def update_trip(
     db.commit()
     db.refresh(trip)
     return trip
+
+
+@router.post("/{trip_id}/share/regenerate")
+def regenerate_trip_share(
+    trip_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    trip = db.query(Trip).filter(Trip.id == trip_id, Trip.user_id == user.id).first()
+    if not trip:
+        raise HTTPException(404, "Trip not found")
+    if normalize_trip_visibility(trip.visibility) == "private":
+        raise HTTPException(400, "Set trip visibility to Unlisted or Public before generating a share link")
+
+    regenerate_trip_share_slug(db, trip)
+    log_audit_event(
+        db,
+        user=user,
+        action="regenerate_trip_share_link",
+        resource_type="trip",
+        resource_id=str(trip.id),
+        details={"visibility": trip.visibility},
+    )
+    db.commit()
+    db.refresh(trip)
+    return {
+        **TripResponse.model_validate(trip).model_dump(),
+        **_trip_share_payload(db, trip),
+    }
 
 
 @router.delete("/{trip_id}", status_code=204)

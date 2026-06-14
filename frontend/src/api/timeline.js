@@ -3,6 +3,7 @@ import client from './client'
 export const timelineApi = {
   listPoints:    (tripId)           => client.get(`/trips/${tripId}/points`).then(r => r.data),
   addPoint:      (tripId, data)     => client.post(`/trips/${tripId}/points`, data).then(r => r.data),
+  reorderPoints: (tripId, pointIds) => client.post(`/trips/${tripId}/points/reorder`, { point_ids: pointIds }).then(r => r.data),
   updatePoint:   (pointId, data)    => client.put(`/points/${pointId}`, data).then(r => r.data),
   deletePoint:   (pointId)          => client.delete(`/points/${pointId}`),
 

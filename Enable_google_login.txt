@@ -1,0 +1,49 @@
+You get both Google client IDs from Google Cloud Console.
+What you need:
+backend .env: GOOGLE_CLIENT_ID
+frontend .env: VITE_GOOGLE_CLIENT_ID
+For this app, both should usually be the same Web Client ID.
+How to get it
+Go to Google Cloud Console:https://console.cloud.google.com/
+
+Create or choose a project.
+
+Open:
+APIs & Services → OAuth consent screen
+
+Configure consent screen:App name
+Support email
+Developer contact email
+For local testing, External is usually fine
+Add your own Google account as a test user if needed
+
+Then open:APIs & Services → Credentials
+
+Click:Create Credentials → OAuth client ID
+
+Choose:Web application
+
+Add authorized origins for local dev, for example:http://localhost:5173
+add http://localhost:5174 too if you use that port sometimes
+
+After saving, Google will show you a client ID like:
+1234567890-abc123def456ghi789.apps.googleusercontent.com
+That is the value you use.
+Where to put it
+Backend .env:
+GOOGLE_CLIENT_ID=1234567890-abc123def456ghi789.apps.googleusercontent.com
+Frontend .env or frontend/.env depending on your setup:
+VITE_GOOGLE_CLIENT_ID=1234567890-abc123def456ghi789.apps.googleusercontent.com
+If you want to change bootstrap admin:
+Backend .env:
+ADMIN_EMAIL=your-email@gmail.com
+Important
+You do not need the Google client secret for this current frontend button flow
+You do need the client ID
+After adding env vars, restart both frontend and backend
+For local testing
+After setup:
+restart backend
+restart Vite frontend
+open login/register page
+Google button should appear

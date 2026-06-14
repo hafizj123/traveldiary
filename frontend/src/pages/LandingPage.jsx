@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Globe, Map, Clock, Share2, ChevronRight } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import heroImage from '../image/pexels-marina-zasorina-7634437.jpg'
 
 const FEATURES = [
   { Icon: Globe,  title: 'World Map',    desc: 'See all your visits pinned on an interactive world map with color-coded travel routes.' },
@@ -39,27 +40,40 @@ export default function LandingPage() {
       </header>
 
       {/* Hero */}
-      <section className="bg-gradient-to-br from-primary-900 via-primary-700 to-sky-600 text-white py-24 px-4">
-        <div className="max-w-3xl mx-auto text-center space-y-6">
-          <div className="inline-flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full text-sm">
-            <Globe className="w-4 h-4" />
-            Your personal travel timeline + world map diary
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-bold leading-tight">
-            Pin your memories on a<br />
-            <span className="text-sky-300">world map</span>
-          </h1>
-          <p className="text-lg text-white/80 max-w-xl mx-auto">
-            Create visual travel timelines, track routes between places, upload photos,
-            and share your journeys with the world.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link to="/register" className="bg-white text-primary-700 font-semibold px-6 py-3 rounded-lg hover:bg-white/90 transition-colors flex items-center gap-2">
-              Start for free <ChevronRight className="w-4 h-4" />
-            </Link>
-            <Link to="/login" className="border border-white/30 text-white font-medium px-6 py-3 rounded-lg hover:bg-white/10 transition-colors">
-              Sign in
-            </Link>
+      <section className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <div
+          className="relative mx-auto max-w-7xl overflow-hidden rounded-[2rem] text-white shadow-2xl shadow-slate-900/20"
+          style={{ backgroundImage: `url(${heroImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-950/72 via-primary-900/50 to-sky-900/62" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(56,189,248,0.24),transparent_28%)]" />
+          <div className="relative px-6 py-16 sm:px-10 lg:px-14 lg:py-24">
+            <div className="max-w-3xl space-y-6">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/12 px-4 py-2 text-sm backdrop-blur-sm">
+                <Globe className="w-4 h-4" />
+                Your personal travel timeline + world map diary
+              </div>
+              <h1 className="text-4xl font-bold leading-tight sm:text-5xl lg:text-6xl">
+                Pin your memories on a
+                <br />
+                world map
+              </h1>
+              <p className="max-w-2xl text-base leading-7 text-white/82 sm:text-lg">
+                Create visual travel timelines, track routes between places, upload photos,
+                and share your journeys with the world.
+              </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                <Link to="/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 font-semibold text-slate-900 hover:bg-white/92 transition-colors">
+                  Start for free <ChevronRight className="w-4 h-4" />
+                </Link>
+                <Link to="/shared-trips" className="inline-flex items-center justify-center rounded-full border border-white/30 bg-white/10 px-6 py-3 font-medium text-white backdrop-blur-sm hover:bg-white/16 transition-colors">
+                  Explore shared trips
+                </Link>
+                <Link to="/login" className="inline-flex items-center justify-center rounded-full border border-white/20 px-6 py-3 font-medium text-white/92 hover:bg-white/10 transition-colors">
+                  Sign in
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </section>

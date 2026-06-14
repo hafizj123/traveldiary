@@ -1,9 +1,16 @@
 import { Link } from 'react-router-dom'
-import { Edit2, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Edit2, Plus, Trash2 } from 'lucide-react'
 import { fmtDate } from '../../utils/formatDate'
 import { getMethod } from '../../utils/travelIcons'
 
-export default function TimelineView({ points = [], segments = [], tripId, onDelete }) {
+export default function TimelineView({
+  points = [],
+  segments = [],
+  tripId,
+  onDelete,
+  onMoveUp = null,
+  onMoveDown = null,
+}) {
   if (!points.length) {
     return (
       <div className="text-center py-16 text-slate-400">
@@ -16,12 +23,30 @@ export default function TimelineView({ points = [], segments = [], tripId, onDel
   const segByTo = {}
   segments.forEach(s => { segByTo[s.to_point_id] = s })
 
+  const canMoveUp = (index) => {
+    if (index <= 0) return false
+    const current = points[index]
+    const previous = points[index - 1]
+    if (!current?.visit_date || !previous?.visit_date) return true
+    return current.visit_date >= previous.visit_date
+  }
+
+  const canMoveDown = (index) => {
+    if (index >= points.length - 1) return false
+    const current = points[index]
+    const next = points[index + 1]
+    if (!current?.visit_date || !next?.visit_date) return true
+    return current.visit_date <= next.visit_date
+  }
+
   return (
     <div className="space-y-0">
       {points.map((pt, i) => {
         const seg    = segByTo[pt.id]
         const method = seg ? getMethod(seg.travel_method) : null
         const Icon   = method?.Icon
+        const moveUpAllowed = canMoveUp(i)
+        const moveDownAllowed = canMoveDown(i)
 
         return (
           <div key={pt.id}>
@@ -89,6 +114,32 @@ export default function TimelineView({ points = [], segments = [], tripId, onDel
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <span className="text-xs text-slate-400 whitespace-nowrap">{fmtDate(pt.visit_date)}</span>
                         {tripId && (
+                          <>
+                            {onMoveUp && (
+                              <button
+                                type="button"
+                                onClick={() => onMoveUp(pt.id)}
+                                disabled={!moveUpAllowed}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                                title={moveUpAllowed ? 'Move up' : 'Cannot move up because the date would be out of order'}
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {onMoveDown && (
+                              <button
+                                type="button"
+                                onClick={() => onMoveDown(pt.id)}
+                                disabled={!moveDownAllowed}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                                title={moveDownAllowed ? 'Move down' : 'Cannot move down because the date would be out of order'}
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </>
+                        )}
+                        {tripId && (
                           <Link
                             to={`/trips/${tripId}/points/${pt.id}/edit?returnTo=timeline`}
                             className="ml-2 p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
@@ -131,6 +182,20 @@ export default function TimelineView({ points = [], segments = [], tripId, onDel
                 </div>
               </div>
             </div>
+
+            {tripId && i < points.length - 1 && (
+              <div className="flex items-center gap-3 pl-[3.65rem] pb-4 pt-1">
+                <div className="h-px flex-1 bg-slate-100" />
+                <Link
+                  to={`/trips/${tripId}/points/new?returnTo=timeline&insertAfter=${pt.id}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-primary-200 hover:bg-primary-50 hover:text-primary-700"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add here
+                </Link>
+                <div className="h-px flex-1 bg-slate-100" />
+              </div>
+            )}
           </div>
         )
       })}

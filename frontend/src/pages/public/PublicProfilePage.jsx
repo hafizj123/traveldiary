@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Globe, MapPin, Lock } from 'lucide-react'
+import { Globe, Lock } from 'lucide-react'
 import { publicApi } from '../../api/public'
+import { useAuth } from '../../contexts/AuthContext'
 import TripCard from '../../components/trips/TripCard'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 
 export default function PublicProfilePage() {
+  const { user } = useAuth()
   const { username } = useParams()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -24,10 +26,14 @@ export default function PublicProfilePage() {
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-100 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex h-16 items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 font-bold text-primary-600">
+          <Link to={user ? '/dashboard' : '/'} className="flex items-center gap-2 font-bold text-primary-600">
             <Globe className="w-5 h-5" /> Travel Diary
           </Link>
-          <Link to="/login" className="text-sm text-primary-600 font-medium hover:underline">Sign in</Link>
+          {user ? (
+            <Link to="/dashboard" className="text-sm text-primary-600 font-medium hover:underline">Dashboard</Link>
+          ) : (
+            <Link to="/login" className="text-sm text-primary-600 font-medium hover:underline">Sign in</Link>
+          )}
         </div>
       </header>
 
@@ -52,9 +58,7 @@ export default function PublicProfilePage() {
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {data.trips.map(t => (
-                  <Link key={t.id} to={`/u/${username}/trips/${t.id}`}>
-                    <TripCard trip={t} />
-                  </Link>
+                  <TripCard key={t.id} trip={t} to={t.share_slug ? `/shared/${t.share_slug}` : `/u/${username}/trips/${t.id}`} />
                 ))}
               </div>
             )}
