@@ -10,6 +10,7 @@ echo "[deploy] moving to $APP_DIR"
 cd "$APP_DIR"
 
 echo "[deploy] pulling latest code"
+git reset --hard HEAD
 git pull --ff-only origin main
 
 echo "[deploy] installing backend dependencies"
