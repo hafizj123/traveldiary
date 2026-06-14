@@ -21,6 +21,7 @@ jobs:
           username: ${{ secrets.DO_USERNAME }}
           key: ${{ secrets.DO_SSH_KEY }}
           port: ${{ secrets.DO_PORT || 22 }}
+          command_timeout: 20m
           script: |
             cd /var/www/traveldiary
             if [ ! -f scripts/deploy.sh ]; then

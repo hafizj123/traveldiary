@@ -18,7 +18,7 @@ pip install -r "$BACKEND_DIR/requirements.txt"
 
 echo "[deploy] building frontend"
 cd "$FRONTEND_DIR"
-npm ci
+npm install
 npm run build
 
 echo "[deploy] restarting backend service"
