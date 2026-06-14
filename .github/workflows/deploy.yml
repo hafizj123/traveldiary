@@ -24,8 +24,7 @@ jobs:
           command_timeout: 20m
           script: |
             cd /var/www/traveldiary
-            if [ ! -f scripts/deploy.sh ]; then
-              git pull --ff-only origin main
-            fi
+            git reset --hard HEAD
+            git pull --ff-only origin main
             chmod +x scripts/deploy.sh
             ./scripts/deploy.sh
