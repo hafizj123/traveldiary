@@ -80,6 +80,14 @@ class CountryRoutePolicyBulkUpdateBody(BaseModel):
     train_mode: str
 
 
+class RouteCheckStationBody(BaseModel):
+    place_name: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    latitude: float
+    longitude: float
+
+
 class RouteCheckBody(BaseModel):
     method: str
     lat1: float
@@ -88,6 +96,8 @@ class RouteCheckBody(BaseModel):
     lon2: float
     country1: Optional[str] = None
     country2: Optional[str] = None
+    from_station: Optional[RouteCheckStationBody] = None
+    to_station: Optional[RouteCheckStationBody] = None
 
 
 def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -353,6 +363,8 @@ async def check_route_before_save(
             payload.lon2,
             payload.country1,
             payload.country2,
+            explicit_start_station=payload.from_station.dict() if payload.from_station else None,
+            explicit_end_station=payload.to_station.dict() if payload.to_station else None,
         )
         provider = get_train_route_provider(
             db,

@@ -42,11 +42,11 @@ logger = logging.getLogger(__name__)
 
 GOOGLE_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 GEOAPIFY_PLACES_URL = "https://api.geoapify.com/v2/places"
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URL = "https://lz4.overpass-api.de/api/interpreter"
 OVERPASS_FALLBACK_URLS = [
     OVERPASS_URL,
     "https://overpass.private.coffee/api/interpreter",
-    "https://lz4.overpass-api.de/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
 ]
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 GOOGLE_FIELD_MASK = ",".join([
@@ -55,7 +55,10 @@ GOOGLE_FIELD_MASK = ",".join([
     "routes.legs.steps.transitDetails.transitLine.vehicle.type",
 ])
 CACHE_PREFIX = "google_transit_train"
-NEARBY_REUSE_RADIUS_METERS = 10
+# Allow reuse across small coordinate variants for the same station complex.
+# This helps when one dataset stores a station centroid slightly differently
+# from another (for example different platforms/exits of a main station).
+NEARBY_REUSE_RADIUS_METERS = 100
 STATION_SEARCH_RADIUS_METERS = 1500
 STATION_SEARCH_RADIUS_METERS_EXPANDED = 5000
 SEARCH_PADDING_DEGREES = 0.35
@@ -71,6 +74,7 @@ STATION_CACHE_REUSE_RADIUS_METERS = 10
 MASTER_STATION_SEARCH_RADIUS_METERS = STATION_SEARCH_RADIUS_METERS_EXPANDED
 USER_TRAIN_SNAP_MAX_DISTANCE_METERS = 1000
 ROUTE_TRAIN_STATION_MAX_DISTANCE_METERS = 1000
+SHORT_LOCAL_TRAIN_OSM_FIRST_DISTANCE_METERS = 20_000
 _station_snap_cache: dict[str, Optional[dict]] = {}
 
 RAIL_VEHICLE_TYPES = {
@@ -272,7 +276,51 @@ def _normalize_country_name(country: Optional[str]) -> str:
 
 def _normalize_search_text(value: str) -> str:
     text = " ".join((value or "").strip().lower().split())
+    text = (
+        text.replace("ø", "o")
+        .replace("œ", "oe")
+        .replace("æ", "ae")
+        .replace("å", "a")
+        .replace("ö", "o")
+        .replace("ü", "u")
+        .replace("ä", "a")
+        .replace("ß", "ss")
+    )
     return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii")
+
+
+def _prefer_specific_route_country(
+    station_country: Optional[str],
+    request_country: Optional[str],
+) -> Optional[str]:
+    normalized_station = _normalize_country_name(station_country)
+    if normalized_station and normalized_station != "europe":
+        return station_country
+    if _normalize_country_name(request_country):
+        return request_country
+    return station_country
+
+
+def _route_cache_countries(
+    start_station: Optional[dict],
+    end_station: Optional[dict],
+    from_country: Optional[str],
+    to_country: Optional[str],
+) -> list[str]:
+    return [
+        country
+        for country in [
+            _prefer_specific_route_country(
+                start_station.get("country") if start_station else None,
+                from_country,
+            ),
+            _prefer_specific_route_country(
+                end_station.get("country") if end_station else None,
+                to_country,
+            ),
+        ]
+        if country
+    ]
 
 
 def _is_china_country(country: Optional[str]) -> bool:
@@ -350,11 +398,59 @@ def _should_try_google_for_train_by_policy(
     to_country: Optional[str],
 ) -> bool:
     if not _should_use_google_for_train(from_country, to_country):
+        logger.info(
+            "train_route: skipping google by country gate from=%r to=%r",
+            from_country,
+            to_country,
+        )
         return False
-    if from_country and get_effective_train_mode_for_country(db, from_country) != TRAIN_MODE_GOOGLE_OSM:
+    from_mode = get_effective_train_mode_for_country(db, from_country) if from_country else None
+    to_mode = get_effective_train_mode_for_country(db, to_country) if to_country else None
+    same_country_name = _same_non_china_country(from_country, to_country)
+
+    if same_country_name:
+        if from_mode != TRAIN_MODE_GOOGLE_OSM:
+            logger.info(
+                "train_route: skipping google by same-country policy from=%r mode=%s",
+                from_country,
+                from_mode,
+            )
+            return False
+        if to_mode != TRAIN_MODE_GOOGLE_OSM:
+            logger.info(
+                "train_route: skipping google by same-country policy to=%r mode=%s",
+                to_country,
+                to_mode,
+            )
+            return False
+        logger.info(
+            "train_route: google eligible by same-country policy from=%r to=%r",
+            from_country,
+            to_country,
+        )
+        return True
+
+    if from_country and from_mode == TRAIN_MODE_OSM_ONLY:
+        logger.info(
+            "train_route: skipping google by from-country cross-border policy from=%r mode=%s",
+            from_country,
+            from_mode,
+        )
         return False
-    if to_country and get_effective_train_mode_for_country(db, to_country) != TRAIN_MODE_GOOGLE_OSM:
+    if to_country and to_mode == TRAIN_MODE_OSM_ONLY:
+        logger.info(
+            "train_route: skipping google by to-country cross-border policy to=%r mode=%s",
+            to_country,
+            to_mode,
+        )
         return False
+    logger.info(
+        "train_route: google eligible by cross-border policy from=%r mode=%s to=%r mode=%s",
+        from_country,
+        from_mode,
+        to_country,
+        to_mode,
+    )
     return True
 
 
@@ -383,33 +479,20 @@ def _is_cached_provider_compatible(
     if not family:
         return False
 
-    if family == "osm":
-        return True
-
-    # Never lock train routing onto an old straight-line fallback cache.
-    # If policy or data changed, we want to retry and replace it.
-    if family == "fallback":
-        return False
-
     same_country_name = _same_non_china_country(from_country, to_country)
-    if same_country_name:
-        mode = get_effective_train_mode_for_country(db, same_country_name)
-        if mode == TRAIN_MODE_GOOGLE_OSM:
-            return family == "google"
-        if mode == TRAIN_MODE_GEOJSON_OSM:
-            return family == "geojson"
-        return False
 
-    if (
-        _is_china_route_candidate(from_country, 0.0, 0.0)  # country-name-only fast path
-        and _is_china_route_candidate(to_country, 0.0, 0.0)
-    ):
-        return family in {"geojson", "osm"}
+    # For international routes, prefer reusing any cached result we already
+    # have, including fallback lines, to avoid expensive recalculation on
+    # small servers. Same-country routes keep the stricter behavior so better
+    # local/Google data can still replace an old fallback.
+    if family == "fallback":
+        return same_country_name is None
 
-    if family == "google":
-        return _should_try_google_for_train_by_policy(db, from_country, to_country)
-
-    return False
+    # Reuse any real cached train geometry regardless of the current policy mode.
+    # This keeps previously-computed routes displayable after switching a country
+    # between Google, OSM, or local GeoJSON modes. Only synthetic straight-line
+    # fallbacks are blocked so we can replace them with a better provider later.
+    return family in {"osm", "google", "geojson"}
 
 
 def _same_non_china_country(from_country: Optional[str], to_country: Optional[str]) -> Optional[str]:
@@ -479,6 +562,30 @@ async def _resolve_train_payload_for_country_mode(
         return payload
 
     if mode == TRAIN_MODE_GEOJSON_OSM:
+        dataset_match = match_geojson_dataset_for_route(
+            lat1,
+            lon1,
+            lat2,
+            lon2,
+            country_hint=country_name,
+        )
+        direct_distance_meters = _haversine_meters(lat1, lon1, lat2, lon2)
+        prefer_osm_first = (
+            dataset_match is not None
+            and not str(dataset_match.get("city") or "").strip()
+            and direct_distance_meters <= SHORT_LOCAL_TRAIN_OSM_FIRST_DISTANCE_METERS
+        )
+        if prefer_osm_first:
+            logger.info(
+                "train_route: preferring osm before geojson for short country route country=%s dataset=%s distance_m=%.1f",
+                country_name,
+                dataset_match.get("key"),
+                direct_distance_meters,
+            )
+            payload = await _fetch_from_osm_railway(lat1, lon1, lat2, lon2)
+            if payload:
+                payload["provider"] = "osm"
+                return payload
         payload = await _fetch_from_generic_geojson_with_timeout(
             lat1,
             lon1,
@@ -691,6 +798,24 @@ def _score_route(route: dict) -> tuple[int, int, int]:
     return rail_steps, -bus_steps, transit_steps
 
 
+def _route_is_rail_only(route: dict) -> bool:
+    saw_transit = False
+
+    for leg in route.get("legs") or []:
+        for step in leg.get("steps") or []:
+            transit_details = step.get("transitDetails") or {}
+            if not transit_details:
+                continue
+            saw_transit = True
+            vehicle_type = (
+                ((transit_details.get("transitLine") or {}).get("vehicle") or {}).get("type")
+            )
+            if not vehicle_type or vehicle_type not in RAIL_VEHICLE_TYPES:
+                return False
+
+    return saw_transit
+
+
 def _build_route_payload(route: dict) -> Optional[dict]:
     geometry = _extract_route_geometry(route)
     if not geometry:
@@ -734,12 +859,16 @@ def _extract_route_payload(data: dict) -> Optional[dict]:
     if not routes:
         return None
 
-    best_route = max(routes, key=_score_route)
+    rail_only_routes = [route for route in routes if _route_is_rail_only(route)]
+    if not rail_only_routes:
+        return None
+
+    best_route = max(rail_only_routes, key=_score_route)
     payload = _build_route_payload(best_route)
     if payload:
         return payload
 
-    for route in routes:
+    for route in rail_only_routes:
         payload = _build_route_payload(route)
         if payload:
             return payload
@@ -772,7 +901,7 @@ async def _fetch_from_google_routes(
         "travelMode": "TRANSIT",
         "computeAlternativeRoutes": True,
         "transitPreferences": {
-            "allowedTravelModes": ["TRAIN", "LIGHT_RAIL", "RAIL", "SUBWAY", "BUS"],
+            "allowedTravelModes": ["TRAIN", "LIGHT_RAIL", "RAIL", "SUBWAY"],
             "routingPreference": "FEWER_TRANSFERS",
         },
         "languageCode": "en",
@@ -1698,6 +1827,48 @@ async def _fetch_nearest_station_for_route(db: Session, lat: float, lon: float) 
     return station
 
 
+def _normalize_explicit_route_station(
+    station: Optional[dict],
+    lat: float,
+    lon: float,
+) -> Optional[dict]:
+    if not isinstance(station, dict):
+        return None
+
+    station_lat = station.get("latitude")
+    station_lon = station.get("longitude")
+    if station_lat is None or station_lon is None:
+        return None
+
+    try:
+        station_lat = float(station_lat)
+        station_lon = float(station_lon)
+    except (TypeError, ValueError):
+        return None
+
+    distance_meters = _haversine_meters(lat, lon, station_lat, station_lon)
+    if distance_meters > ROUTE_TRAIN_STATION_MAX_DISTANCE_METERS:
+        logger.info(
+            "train_route: explicit route station rejected for %.5f,%.5f -> %s distance=%.1fm max=%sm",
+            lat,
+            lon,
+            station.get("place_name") or station.get("name") or "unknown",
+            distance_meters,
+            ROUTE_TRAIN_STATION_MAX_DISTANCE_METERS,
+        )
+        return None
+
+    return {
+        "name": station.get("place_name") or station.get("name") or "",
+        "place_name": station.get("place_name") or station.get("name") or "",
+        "city": station.get("city") or "",
+        "country": station.get("country") or None,
+        "latitude": station_lat,
+        "longitude": station_lon,
+        "distance_meters": round(distance_meters, 1),
+    }
+
+
 def _normalize_cached_payload(value) -> Optional[dict]:
     if isinstance(value, list):
         if not value:
@@ -1986,6 +2157,9 @@ async def fetch_and_cache(
     lon2: float,
     from_country: Optional[str] = None,
     to_country: Optional[str] = None,
+    *,
+    explicit_start_station: Optional[dict] = None,
+    explicit_end_station: Optional[dict] = None,
 ) -> Optional[list]:
     """
     Check DB cache first. If missing, fetch from Google Routes, store result,
@@ -2011,8 +2185,27 @@ async def fetch_and_cache(
             to_country,
         )
 
-    start_station = await _fetch_nearest_station_for_route(db, lat1, lon1)
-    end_station = await _fetch_nearest_station_for_route(db, lat2, lon2)
+    start_station = _normalize_explicit_route_station(explicit_start_station, lat1, lon1)
+    if start_station:
+        logger.info(
+            "train_route: route start station source=explicit for %.5f,%.5f -> %s",
+            lat1,
+            lon1,
+            start_station.get("name"),
+        )
+    else:
+        start_station = await _fetch_nearest_station_for_route(db, lat1, lon1)
+
+    end_station = _normalize_explicit_route_station(explicit_end_station, lat2, lon2)
+    if end_station:
+        logger.info(
+            "train_route: route end station source=explicit for %.5f,%.5f -> %s",
+            lat2,
+            lon2,
+            end_station.get("name"),
+        )
+    else:
+        end_station = await _fetch_nearest_station_for_route(db, lat2, lon2)
 
     if start_station and end_station:
         same_country_name = _same_non_china_country(
@@ -2173,11 +2366,12 @@ async def fetch_and_cache(
             if provider_payload:
                 provider_payload["provider"] = "osm"
         provider_payload = _stitch_train_geometry_to_stations(provider_payload, start_station, end_station)
-        countries = [
-            country
-            for country in [start_station.get("country"), end_station.get("country")]
-            if country
-        ]
+        countries = _route_cache_countries(
+            start_station,
+            end_station,
+            from_country,
+            to_country,
+        )
         payload = provider_payload or {
             "geometry": [
                 [start_station["latitude"], start_station["longitude"]],

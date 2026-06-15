@@ -508,6 +508,7 @@ export default function AddPointPage() {
           longitude: form.longitude,
           country: form.country,
         },
+        toStation: form.travel_method === 'train' ? trainStation : null,
       })
       if (routeCheck.behavior === 'block') {
         setLoading(false)

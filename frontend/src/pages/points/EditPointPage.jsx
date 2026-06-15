@@ -69,6 +69,7 @@ export default function EditPointPage() {
   const [trainStation, setTrainStation] = useState(null)
   const [routeConfirm, setRouteConfirm] = useState({ open: false, message: '', canConfirm: true, title: 'No Route Found' })
   const [visitedCountries, setVisitedCountries] = useState([])
+  const isFirstTimelinePoint = !prevPointId
 
   const originalUrlRef = useRef(null)
   const newlyUploadedRef = useRef(null)
@@ -515,7 +516,7 @@ export default function EditPointPage() {
       country: form.country,
     }
 
-    const validateRouteChange = async ({ label, method, fromPoint, toPoint }) => {
+    const validateRouteChange = async ({ label, method, fromPoint, toPoint, fromStation = null, toStation = null }) => {
       if (!method || !fromPoint || !toPoint) {
         return true
       }
@@ -523,6 +524,8 @@ export default function EditPointPage() {
         method,
         fromPoint,
         toPoint,
+        fromStation,
+        toStation,
       })
       if (routeCheck.behavior === 'block') {
         setSaving(false)
@@ -550,6 +553,7 @@ export default function EditPointPage() {
         method: travelMethod,
         fromPoint: prevPoint,
         toPoint: pendingPoint,
+        toStation: travelMethod === 'train' ? trainStation : null,
       })
       if (!isValid) {
         return
@@ -562,6 +566,7 @@ export default function EditPointPage() {
         method: outgoingSegment.travel_method,
         fromPoint: pendingPoint,
         toPoint: nextPoint,
+        fromStation: outgoingSegment.travel_method === 'train' ? trainStation : null,
       })
       if (!isValid) {
         return
@@ -634,6 +639,11 @@ export default function EditPointPage() {
             {trip && (trip.start_date || trip.end_date) && (
               <p className="text-xs text-slate-400 mt-0.5">
                 Trip date range: {trip.start_date || '-'} to {trip.end_date || '-'}
+              </p>
+            )}
+            {isFirstTimelinePoint && (
+              <p className="mt-1 text-xs text-amber-700">
+                This is the first location in the timeline, so editing it also updates the trip starting place.
               </p>
             )}
           </div>

@@ -75,6 +75,47 @@ def _normalize_trip_sequence_numbers(db: Session, trip_id: int) -> list[Timeline
     return points
 
 
+def _merge_planned_countries_with_starting_country(planned_countries, starting_country: Optional[str]) -> list[str]:
+    values = list(planned_countries or [])
+    if starting_country:
+        values.append(starting_country)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = " ".join(str(value or "").strip().split())
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(text)
+    return normalized
+
+
+def _sync_trip_starting_fields_from_point(trip: Trip, point: Optional[TimelinePoint]) -> None:
+    if point is None:
+        trip.starting_place_name = None
+        trip.starting_city = None
+        trip.starting_country = None
+        trip.starting_latitude = None
+        trip.starting_longitude = None
+        return
+
+    trip.starting_place_name = point.place_name
+    trip.starting_city = point.city
+    trip.starting_country = point.country
+    trip.starting_latitude = point.latitude
+    trip.starting_longitude = point.longitude
+    if point.visit_date is not None:
+        trip.start_date = point.visit_date
+    trip.planned_countries = _merge_planned_countries_with_starting_country(
+        trip.planned_countries,
+        point.country,
+    )
+
+
 def _neighbor_points_for_point(
     db: Session,
     trip_id: int,
@@ -241,6 +282,8 @@ async def add_point(
         resource_id=str(point.id),
         details={"trip_id": trip_id, "place_name": point.place_name, "visit_date": point.visit_date.isoformat() if point.visit_date else None},
     )
+    if not ordered_points or point.sequence_no == 0:
+        _sync_trip_starting_fields_from_point(trip, point)
     db.commit()
     db.refresh(point)
 
@@ -369,6 +412,7 @@ async def reorder_points(
         resource_id=str(trip_id),
         details={"changed_points": changed, "point_ids": requested_ids},
     )
+    _sync_trip_starting_fields_from_point(_get_trip(trip_id, user.id, db), proposed_points[0] if proposed_points else None)
     db.commit()
     for from_pt, to_pt in created_train_pairs:
         await fetch_and_cache(
@@ -419,6 +463,8 @@ async def update_point(
 
     for k, v in updates.items():
         setattr(point, k, v)
+    if prev_point is None:
+        _sync_trip_starting_fields_from_point(trip, point)
 
     log_audit_event(
         db,
@@ -560,6 +606,9 @@ async def delete_point(
     db.delete(point)
     db.flush()
     _normalize_trip_sequence_numbers(db, trip_id_value)
+    if point_index == 0:
+        remaining_points = _ordered_trip_points(db, trip_id_value)
+        _sync_trip_starting_fields_from_point(trip, remaining_points[0] if remaining_points else None)
     log_audit_event(
         db,
         user=user,

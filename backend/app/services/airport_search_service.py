@@ -51,6 +51,16 @@ COUNTRY_EQUIVALENTS = {
 
 def _normalize(value: str) -> str:
     text = " ".join((value or "").strip().lower().split())
+    text = (
+        text.replace("ø", "o")
+        .replace("œ", "oe")
+        .replace("æ", "ae")
+        .replace("å", "a")
+        .replace("ö", "o")
+        .replace("ü", "u")
+        .replace("ä", "a")
+        .replace("ß", "ss")
+    )
     return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii")
 
 

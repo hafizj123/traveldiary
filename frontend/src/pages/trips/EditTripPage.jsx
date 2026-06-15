@@ -119,6 +119,9 @@ export default function EditTripPage() {
           </div>
           <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
             <h2 className="text-sm font-semibold text-slate-700">Starting place *</h2>
+            <p className="text-xs text-slate-500">
+              The starting place stays synced with the first location in the timeline.
+            </p>
             <PlaceSearch
               label="Search starting place"
               onSelect={({ place_name, city, country, latitude, longitude }) => {

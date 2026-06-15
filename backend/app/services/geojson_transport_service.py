@@ -520,6 +520,16 @@ def _write_imported_dataset_metadata(current: dict[str, dict]) -> None:
 
 def _normalize_text(value: str) -> str:
     text = " ".join((value or "").strip().lower().split())
+    text = (
+        text.replace("ø", "o")
+        .replace("œ", "oe")
+        .replace("æ", "ae")
+        .replace("å", "a")
+        .replace("ö", "o")
+        .replace("ü", "u")
+        .replace("ä", "a")
+        .replace("ß", "ss")
+    )
     return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii")
 
 
@@ -772,6 +782,11 @@ def _train_rank(properties: dict) -> int:
     public_transport = str(properties.get("public_transport") or "").strip().lower()
     building = str(properties.get("building") or "").strip().lower()
     train = str(properties.get("train") or "").strip().lower()
+    subway = str(properties.get("subway") or "").strip().lower()
+    light_rail = str(properties.get("light_rail") or "").strip().lower()
+    operator = str(properties.get("operator") or "").strip().lower()
+    network = str(properties.get("network") or "").strip().lower()
+    name = str(properties.get("name") or "").strip().lower()
 
     score = 0
     if railway == "station":
@@ -781,8 +796,10 @@ def _train_rank(properties: dict) -> int:
     elif railway in {"tram_stop", "subway_entrance"}:
         score += 2
 
-    if station in {"train", "subway", "light_rail", "monorail"}:
+    if station == "train":
         score += 4
+    elif station in {"subway", "light_rail", "monorail"}:
+        score -= 4
     if public_transport == "station":
         score += 3
     elif public_transport in {"platform", "stop_position"}:
@@ -791,6 +808,16 @@ def _train_rank(properties: dict) -> int:
         score += 3
     if train == "yes":
         score += 2
+    if subway == "yes":
+        score -= 6
+    if light_rail == "yes":
+        score -= 5
+    if "s-bahn" in operator or "s bahn" in operator or "s-bahn" in network or "s bahn" in network:
+        score -= 4
+    if "metro" in operator or "metro" in network:
+        score -= 4
+    if "tram" in name or "tram" in operator or "tram" in network:
+        score -= 3
     return score
 
 
@@ -1143,11 +1170,12 @@ class _GeoJsonTransportDataset:
                         "longitude": item["longitude"],
                         "subtitle": ", ".join(part for part in [item["city"], item["country"]] if part),
                         "source": item["source"],
+                        "train_rank": item["train_rank"],
                     },
                 )
             )
 
-        ranked.sort(key=lambda entry: (-entry[0], entry[1]["place_name"]))
+        ranked.sort(key=lambda entry: (-entry[0], -int(entry[1].get("train_rank") or 0), entry[1]["place_name"]))
         results: list[dict] = []
         seen: set[str] = set()
         for _, result in ranked:
@@ -1192,7 +1220,18 @@ class _GeoJsonTransportDataset:
             elif named_candidates:
                 candidates = named_candidates
 
+            best_distance = min(distance for distance, _ in candidates)
+            close_candidates = [
+                (distance, item)
+                for distance, item in candidates
+                if distance <= best_distance + 250.0
+            ]
+            if close_candidates:
+                candidates = close_candidates
+
         candidates.sort(key=lambda entry: (entry[0], -int(entry[1].get("train_rank") or 0)))
+        if method == "train":
+            candidates.sort(key=lambda entry: (-int(entry[1].get("train_rank") or 0), entry[0]))
         best_distance, best_item = candidates[0]
 
         return {

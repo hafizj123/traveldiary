@@ -6,12 +6,14 @@ from ..database import get_db
 from ..models.trip import Trip
 from ..models.trip_journal import TripJournal
 from ..models.timeline_point import TimelinePoint
+from ..models.travel_segment import TravelSegment
 from ..schemas.trip import TripCreate, TripUpdate, TripResponse, ALLOWED_TRIP_VISIBILITY
 from ..utils.deps import get_current_user
 from ..models.user import User
 from ..services.r2_service import delete_image
 from ..services.audit_service import log_audit_event
 from ..services.trip_share_service import ensure_trip_share_state, get_trip_public_stats, normalize_trip_visibility, regenerate_trip_share_slug, build_public_share_url
+from ..services.train_route_service import fetch_and_cache, get_train_route_provider
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -171,7 +173,7 @@ def get_trip(
 
 
 @router.put("/{trip_id}", response_model=TripResponse)
-def update_trip(
+async def update_trip(
     trip_id: int,
     data: TripUpdate,
     db: Session = Depends(get_db),
@@ -196,11 +198,19 @@ def update_trip(
     if "visibility" in updates:
         updates["visibility"] = _validate_trip_visibility(updates["visibility"])
 
+    first_point = _first_trip_point(db, trip.id)
+    should_refresh_first_train_segment = False
+    if first_point:
+        old_train_anchor = (
+            first_point.latitude,
+            first_point.longitude,
+            (first_point.country or "").strip(),
+        )
+
     for k, v in updates.items():
         setattr(trip, k, v)
     ensure_trip_share_state(trip)
 
-    first_point = _first_trip_point(db, trip.id)
     if first_point:
         first_point.place_name = str(next_place_name).strip()
         first_point.country = str(next_country).strip()
@@ -208,6 +218,12 @@ def update_trip(
         first_point.latitude = next_latitude
         first_point.longitude = next_longitude
         first_point.visit_date = next_start_date
+        new_train_anchor = (
+            first_point.latitude,
+            first_point.longitude,
+            (first_point.country or "").strip(),
+        )
+        should_refresh_first_train_segment = old_train_anchor != new_train_anchor
 
     log_audit_event(
         db,
@@ -219,6 +235,42 @@ def update_trip(
     )
     db.commit()
     db.refresh(trip)
+
+    if should_refresh_first_train_segment and first_point:
+        outgoing_train_segment = (
+            db.query(TravelSegment)
+            .filter(
+                TravelSegment.trip_id == trip.id,
+                TravelSegment.from_point_id == first_point.id,
+                TravelSegment.travel_method == "train",
+            )
+            .first()
+        )
+        if outgoing_train_segment:
+            to_point = outgoing_train_segment.to_point
+            if (
+                to_point
+                and first_point.latitude and first_point.longitude
+                and to_point.latitude and to_point.longitude
+            ):
+                await fetch_and_cache(
+                    db,
+                    first_point.latitude,
+                    first_point.longitude,
+                    to_point.latitude,
+                    to_point.longitude,
+                    first_point.country,
+                    to_point.country,
+                )
+                get_train_route_provider(
+                    db,
+                    first_point.latitude,
+                    first_point.longitude,
+                    to_point.latitude,
+                    to_point.longitude,
+                    first_point.country,
+                    to_point.country,
+                )
     return trip
 
 

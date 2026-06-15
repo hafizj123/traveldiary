@@ -120,7 +120,27 @@ async function checkOriginTransportPlace({
   }
 }
 
-export async function checkTransportRouteBeforeSave({ method, fromPoint, toPoint }) {
+function buildStationPayload(station) {
+  if (!station) {
+    return undefined
+  }
+
+  const latitude = Number(station.latitude)
+  const longitude = Number(station.longitude)
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return undefined
+  }
+
+  return {
+    place_name: station.place_name || station.name || '',
+    city: station.city || '',
+    country: station.country || '',
+    latitude,
+    longitude,
+  }
+}
+
+export async function checkTransportRouteBeforeSave({ method, fromPoint, toPoint, fromStation, toStation }) {
   if (!method || !fromPoint || !toPoint) {
     return { exists: true, behavior: 'allow', message: '' }
   }
@@ -210,5 +230,7 @@ export async function checkTransportRouteBeforeSave({ method, fromPoint, toPoint
     lon2,
     country1: fromPoint.country || undefined,
     country2: toPoint.country || undefined,
+    from_station: buildStationPayload(fromStation),
+    to_station: buildStationPayload(toStation),
   })
 }
