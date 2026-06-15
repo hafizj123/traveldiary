@@ -12,6 +12,7 @@ export const routesApi = {
   nearestTransportPlace: (params) => client.get('/locations/nearest-transport', { params }).then((r) => r.data),
   savedRouteCache: (params) => client.get('/admin/route-cache', { params }).then((r) => r.data),
   geojsonImportTasks: () => client.get('/admin/geojson-import/tasks').then((r) => r.data),
+  geojsonImportTaskLog: (taskId, params) => client.get(`/admin/geojson-import/tasks/${taskId}/log`, { params }).then((r) => r.data),
   createGeojsonImportTask: (payload) => client.post('/admin/geojson-import/tasks', payload).then((r) => r.data),
   countryRoutePolicies: () => client.get('/admin/country-route-policies').then((r) => r.data),
   updateCountryRoutePolicy: (countryKey, payload) => client.put(`/admin/country-route-policies/${countryKey}`, payload).then((r) => r.data),

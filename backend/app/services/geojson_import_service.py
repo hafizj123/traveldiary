@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
+import subprocess
+import sys
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -30,6 +33,9 @@ logger = logging.getLogger(__name__)
 TASKS_PATH = DATASET_ROOT_DIR / "geojson_import_tasks.json"
 IMPORT_HISTORY_PATH = DATASET_ROOT_DIR / "geojson_import_history.json"
 BACKUP_DIR = DATASET_ROOT_DIR / "backups"
+LOG_DIR = DATASET_ROOT_DIR / "logs"
+REPO_ROOT_DIR = Path(__file__).resolve().parents[3]
+BACKEND_DIR = REPO_ROOT_DIR / "backend"
 OVERPASS_IMPORT_URLS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
@@ -37,7 +43,12 @@ OVERPASS_IMPORT_URLS = (
 )
 IMPORT_TYPES = {"rail", "airport"}
 LARGE_RAIL_COUNTRY_KEYS = {
+    "australia",
+    "brazil",
+    "canada",
     "china",
+    "japan",
+    "mexico",
     "united states",
     "united states of america",
     "usa",
@@ -215,7 +226,35 @@ def _task_summary(task: dict) -> dict:
         "error": task.get("error"),
         "line_file": task.get("line_file"),
         "station_file": task.get("station_file"),
+        "log_file": task.get("log_file"),
+        "worker_pid": task.get("worker_pid"),
     }
+
+
+def _task_log_path(task_id: str, dataset_key: str) -> Path:
+    safe_key = _slugify_country_name(dataset_key) or "dataset"
+    return LOG_DIR / f"{safe_key}__{task_id}.log"
+
+
+def _is_process_running(pid: Optional[int]) -> bool:
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _tail_text(path: Path, max_bytes: int = 48_000) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        handle.seek(max(0, size - max_bytes), os.SEEK_SET)
+        chunk = handle.read()
+    return chunk.decode("utf-8", errors="replace")
 
 
 def _title_from_slug(value: str) -> str:
@@ -568,6 +607,7 @@ class _GeoJsonImportTaskManager:
         self._load()
 
     def _load(self) -> None:
+        active_worker_task_id = str(os.environ.get("GEOJSON_IMPORT_TASK_ID") or "").strip()
         if not TASKS_PATH.exists():
             self._tasks = []
             self._active_task_id = None
@@ -585,11 +625,25 @@ class _GeoJsonImportTaskManager:
         self._tasks = tasks if isinstance(tasks, list) else []
         self._active_task_id = None
         for task in self._tasks:
-            if task.get("status") in {"queued", "running"}:
+            if str(task.get("id") or "") == active_worker_task_id and task.get("status") in {"queued", "running"}:
+                self._active_task_id = task.get("id")
+                continue
+            if task.get("status") == "queued":
                 task["status"] = "failed"
                 task["stage"] = "Interrupted by server restart"
                 task["error"] = "Task did not finish before the server restarted."
                 task["finished_at"] = _utc_now_iso()
+                task["progress_percent"] = max(int(task.get("progress_percent") or 0), 1)
+                continue
+            if task.get("status") == "running":
+                worker_pid = int(task.get("worker_pid") or 0)
+                if _is_process_running(worker_pid):
+                    self._active_task_id = task.get("id")
+                    continue
+                task["status"] = "failed"
+                task["stage"] = "Worker stopped unexpectedly"
+                task["error"] = task.get("error") or "The GeoJSON import worker stopped before completing."
+                task["finished_at"] = task.get("finished_at") or _utc_now_iso()
                 task["progress_percent"] = max(int(task.get("progress_percent") or 0), 1)
         self._persist()
 
@@ -602,6 +656,7 @@ class _GeoJsonImportTaskManager:
 
     def list_tasks(self) -> list[dict]:
         with self._lock:
+            self._load()
             return [_task_summary(task) for task in self._tasks]
 
     def create_task(
@@ -669,14 +724,58 @@ class _GeoJsonImportTaskManager:
             self._active_task_id = task["id"]
             self._persist()
 
-        worker = threading.Thread(
-            target=self._run_task,
-            args=(task["id"],),
-            name=f"geojson-{normalized_import_type}-import-{dataset_key}",
-            daemon=True,
-        )
-        worker.start()
+        try:
+            worker_pid, log_path = self._launch_worker_process(task)
+            task.update({
+                "status": "running",
+                "stage": "Worker process started",
+                "started_at": _utc_now_iso(),
+                "progress_percent": 1,
+                "worker_pid": worker_pid,
+                "log_file": str(log_path),
+            })
+            self._update_task(
+                task["id"],
+                status=task["status"],
+                stage=task["stage"],
+                started_at=task["started_at"],
+                progress_percent=task["progress_percent"],
+                worker_pid=task["worker_pid"],
+                log_file=task["log_file"],
+            )
+        except Exception as exc:
+            logger.exception("geojson_import: failed to launch worker for %s", dataset_key)
+            task.update({
+                "status": "failed",
+                "stage": "Failed to start worker",
+                "error": str(exc),
+                "finished_at": _utc_now_iso(),
+            })
+            self._finish_task(task["id"], status="failed", stage="Failed to start worker", error=str(exc))
         return _task_summary(task)
+
+    def _launch_worker_process(self, task: dict) -> tuple[int, Path]:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = _task_log_path(task["id"], task["dataset_key"])
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{_utc_now_iso()}] Launching GeoJSON import worker for {task['dataset_key']}\n")
+
+        command = [sys.executable, "-m", "app.geojson_import_worker", task["id"]]
+        child_env = os.environ.copy()
+        child_env["GEOJSON_IMPORT_TASK_ID"] = str(task["id"])
+        log_handle = log_path.open("a", encoding="utf-8")
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=str(BACKEND_DIR),
+                env=child_env,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        finally:
+            log_handle.close()
+        return int(process.pid), log_path
 
     def _update_task(self, task_id: str, **updates) -> None:
         with self._lock:
@@ -696,6 +795,7 @@ class _GeoJsonImportTaskManager:
             task["stage"] = stage
             task["error"] = error
             task["finished_at"] = _utc_now_iso()
+            task["worker_pid"] = None
             if status == "completed":
                 task["progress_percent"] = 100
             self._active_task_id = None
@@ -757,13 +857,35 @@ class _GeoJsonImportTaskManager:
             raise RuntimeError(f"{context} returned no features. Try a different boundary name or city search result.")
 
     def _run_task(self, task_id: str) -> None:
+        with self._lock:
+            self._load()
         task = next((row for row in self._tasks if row.get("id") == task_id), None)
         if not task:
-            return
+            raise ValueError("GeoJSON import task not found.")
+        if task.get("status") not in {"queued", "running"}:
+            raise ValueError("GeoJSON import task is not runnable.")
         if (task.get("import_type") or "rail") == "airport":
             self._run_airport_task(task_id, task)
             return
         self._run_rail_task(task_id, task)
+
+    def get_task_log(self, task_id: str, *, max_bytes: int = 48_000) -> dict:
+        with self._lock:
+            self._load()
+            task = next((row for row in self._tasks if row.get("id") == task_id), None)
+        if not task:
+            raise ValueError("GeoJSON import task not found.")
+
+        log_file = str(task.get("log_file") or "").strip()
+        log_path = Path(log_file) if log_file else _task_log_path(task_id, str(task.get("dataset_key") or "dataset"))
+        return {
+            "task": _task_summary(task),
+            "log_file": str(log_path),
+            "content": _tail_text(log_path, max_bytes=max_bytes),
+        }
+
+    def run_task(self, task_id: str) -> None:
+        self._run_task(task_id)
 
     def _run_rail_task(self, task_id: str, task: dict) -> None:
         country_name = task["country_name"]
@@ -951,6 +1073,10 @@ def list_geojson_import_tasks() -> list[dict]:
     return _task_manager.list_tasks()
 
 
+def get_geojson_import_task_log(task_id: str, *, max_bytes: int = 48_000) -> dict:
+    return _task_manager.get_task_log(task_id, max_bytes=max_bytes)
+
+
 def create_geojson_import_task(
     country_name: str,
     city_name: Optional[str] = None,
@@ -959,6 +1085,10 @@ def create_geojson_import_task(
     overwrite: bool = False,
 ) -> dict:
     return _task_manager.create_task(country_name, city_name, import_type, iso_code, overwrite)
+
+
+def run_geojson_import_task(task_id: str) -> None:
+    _task_manager.run_task(task_id)
 
 
 def list_geojson_import_history(limit: int = 200) -> list[dict]:

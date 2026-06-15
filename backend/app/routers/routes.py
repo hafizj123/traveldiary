@@ -23,6 +23,7 @@ from ..services.geojson_transport_service import build_excursion_route_from_geoj
 from ..services.excursion_route_service import fetch_and_cache_excursion_route, get_excursion_route_provider, get_excursion_route_state
 from ..services.ferry_route_service import fetch_and_cache_ferry_route, get_ferry_route_provider, get_ferry_route_state
 from ..services.geojson_import_service import create_geojson_import_task, list_geojson_import_tasks
+from ..services.geojson_import_service import get_geojson_import_task_log
 from ..services.place_lookup_service import lookup_nearest_transport_place, reverse_geocode_location, search_transport_places
 from ..services.route_cache_service import build_route_cache_metadata, extract_geometry, normalize_countries
 from ..services.search_alias_service import search_alias_matches
@@ -581,6 +582,19 @@ def get_saved_route_cache(
 def get_geojson_import_tasks(user: User = Depends(get_current_user)):
     _require_admin_route_user(user)
     return {"items": list_geojson_import_tasks()}
+
+
+@router.get("/admin/geojson-import/tasks/{task_id}/log")
+def get_geojson_import_task_log_route(
+    task_id: str,
+    max_bytes: int = Query(48000, ge=1024, le=200000),
+    user: User = Depends(get_current_user),
+):
+    _require_admin_route_user(user)
+    try:
+        return get_geojson_import_task_log(task_id, max_bytes=max_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/admin/geojson-import/tasks")

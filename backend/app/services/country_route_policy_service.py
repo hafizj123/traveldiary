@@ -100,8 +100,13 @@ OSM_ONLY_VISIBLE_COUNTRIES = {
 }
 
 GROUPED_CITY_POLICY_COUNTRY_KEYS = {
+    "australia",
+    "brazil",
+    "canada",
     "china",
     "india",
+    "japan",
+    "mexico",
     "russia",
     "united_states",
 }

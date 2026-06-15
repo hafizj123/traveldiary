@@ -10,7 +10,12 @@ import { searchCities, searchCountries } from '../../components/ui/locationSearc
 import { routesApi } from '../../api/routes'
 import { useAuth } from '../../contexts/AuthContext'
 const LARGE_RAIL_COUNTRY_KEYS = new Set([
+  'australia',
+  'brazil',
+  'canada',
   'china',
+  'japan',
+  'mexico',
   'united states',
   'united states of america',
   'usa',
@@ -96,12 +101,17 @@ export default function GeoJsonImportPage() {
   const [tasks, setTasks] = useState([])
   const [error, setError] = useState('')
   const [overwritePrompt, setOverwritePrompt] = useState(null)
+  const [selectedLogTaskId, setSelectedLogTaskId] = useState('')
+  const [taskLog, setTaskLog] = useState('')
+  const [taskLogPath, setTaskLogPath] = useState('')
+  const [taskLogLoading, setTaskLogLoading] = useState(false)
 
   const isAllowed = Boolean(user?.is_admin)
   const normalizedCountryName = countryName.trim().toLowerCase()
   const isAirportImport = importType === 'airport'
   const requiresRailSubdivision = !isAirportImport && railImportNeedsSubdivision(countryName)
   const isChinaSelected = normalizedCountryName === 'china'
+  const isJapanSelected = normalizedCountryName === 'japan'
   const hasValidCountrySelection = isAirportImport ? !!countryName.trim() : (requiresRailSubdivision ? cityConfirmed : !!countryName.trim())
   const hasValidAirportIso = !isAirportImport || /^[A-Z]{2}$/.test(countryIsoCode.trim().toUpperCase())
   const activeTask = useMemo(
@@ -221,6 +231,21 @@ export default function GeoJsonImportPage() {
   const handleSubmit = async (event) => {
     event.preventDefault()
     await startImport()
+  }
+
+  const loadTaskLog = async (taskId) => {
+    setSelectedLogTaskId(taskId)
+    setTaskLogLoading(true)
+    try {
+      const data = await routesApi.geojsonImportTaskLog(taskId)
+      setTaskLog(data.content || '')
+      setTaskLogPath(data.log_file || '')
+    } catch (err) {
+      setTaskLog(err?.response?.data?.detail || 'Failed to load task log.')
+      setTaskLogPath('')
+    } finally {
+      setTaskLogLoading(false)
+    }
   }
 
   if (loading) {
@@ -352,7 +377,7 @@ export default function GeoJsonImportPage() {
                 ) : null}
                 {!isAirportImport && requiresRailSubdivision ? (
                   <SearchableLocationInput
-                    label={isChinaSelected ? 'City name' : 'City or region name'}
+                    label={isChinaSelected || isJapanSelected ? 'City name' : 'City or region name'}
                     value={cityName}
                     onChange={(value) => {
                       setCityName(isChinaSelected ? normalizeChinaCityName(value) : value)
@@ -365,7 +390,7 @@ export default function GeoJsonImportPage() {
                     searchFn={(text) => searchCities(text, countryName)}
                     required
                     minChars={1}
-                    placeholder={isChinaSelected ? 'Search China municipality or city' : `Search city or region in ${countryName}`}
+                    placeholder={isChinaSelected ? 'Search China municipality or city' : isJapanSelected ? 'Search city in Japan' : `Search city or region in ${countryName}`}
                     disabled={submitting || !!activeTask}
                   />
                 ) : null}
@@ -377,14 +402,16 @@ export default function GeoJsonImportPage() {
                 {!isAirportImport && requiresRailSubdivision ? <p className="text-xs text-slate-500">
                   {isChinaSelected
                     ? 'For China imports, choose China first, then pick a municipality or city-level boundary from the dropdown.'
-                    : `For ${countryName || 'large-country'} rail imports, choose a smaller city or region from the dropdown instead of importing the whole country.`}
+                    : isJapanSelected
+                      ? 'For Japan rail imports, choose a city from the dropdown instead of importing the whole country.'
+                      : `For ${countryName || 'large-country'} rail imports, choose a smaller city or region from the dropdown instead of importing the whole country.`}
                 </p> : null}
                 {!isAirportImport && requiresRailSubdivision && cityName.trim() && !cityConfirmed ? (
-                  <p className="text-xs text-amber-600">Pick a city or region from the dropdown before starting the import.</p>
+                  <p className="text-xs text-amber-600">{isChinaSelected || isJapanSelected ? 'Pick a city from the dropdown before starting the import.' : 'Pick a city or region from the dropdown before starting the import.'}</p>
                 ) : null}
                 {!isAirportImport ? (
                   <p className="text-xs text-amber-600">
-                    Very large rail countries such as the USA, Russia, and India should be imported by smaller region or city datasets rather than one full-country file.
+                    Very large rail countries such as Japan, the USA, Canada, Russia, India, Brazil, and Australia should be imported by smaller city or region datasets rather than one full-country file.
                   </p>
                 ) : null}
                 <p className="text-xs text-slate-500">
@@ -426,6 +453,23 @@ export default function GeoJsonImportPage() {
               ) : (
                 <p className="text-sm text-slate-500">No import is running right now.</p>
               )}
+              {selectedLogTaskId ? (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-950 p-3 text-slate-100">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Task Log</p>
+                    <button
+                      type="button"
+                      onClick={() => loadTaskLog(selectedLogTaskId)}
+                      disabled={taskLogLoading}
+                      className="text-xs font-medium text-slate-300 transition hover:text-white disabled:opacity-60"
+                    >
+                      {taskLogLoading ? 'Refreshing...' : 'Refresh log'}
+                    </button>
+                  </div>
+                  {taskLogPath ? <p className="mt-1 text-[11px] text-slate-400">{taskLogPath}</p> : null}
+                  <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-900 p-3 text-[11px] leading-5 text-slate-100">{taskLog || 'No log output yet.'}</pre>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -454,6 +498,15 @@ export default function GeoJsonImportPage() {
                     <p className="mt-1 text-xs text-slate-400">
                       Created: {task.created_at || '-'} {task.finished_at ? `\u00b7 Finished: ${task.finished_at}` : ''}
                     </p>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => loadTaskLog(task.id)}
+                        className="text-xs font-medium text-primary-700 transition hover:text-primary-800"
+                      >
+                        {selectedLogTaskId === task.id ? 'Refresh task log' : 'View task log'}
+                      </button>
+                    </div>
                     {task.error ? <p className="mt-2 text-sm text-rose-600">{task.error}</p> : null}
                   </div>
                 ))
