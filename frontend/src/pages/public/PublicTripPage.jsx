@@ -10,6 +10,8 @@ import GalleryView from '../../components/gallery/GalleryView'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 import { fmtDateRange } from '../../utils/formatDate'
 import { getMethod } from '../../utils/travelIcons'
+import { copyTextToClipboard } from '../../utils/share'
+import toast from 'react-hot-toast'
 
 const TABS = [
   { id: 'map', label: 'Map', Icon: MapPin },
@@ -35,6 +37,15 @@ export default function PublicTripPage() {
       .catch(() => setError('Trip not found or not shared'))
       .finally(() => setLoading(false))
   }, [shareSlug, username, tripId])
+
+  const handleCopyLink = async () => {
+    try {
+      await copyTextToClipboard(window.location.href)
+      toast.success('Link copied!')
+    } catch {
+      toast.error('Could not copy link')
+    }
+  }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><LoadingSpinner size="lg" /></div>
 
@@ -88,7 +99,7 @@ export default function PublicTripPage() {
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               <button
                 type="button"
-                onClick={() => navigator.clipboard.writeText(window.location.href)}
+                onClick={handleCopyLink}
                 className="absolute right-5 top-5 inline-flex items-center gap-1 rounded-lg bg-white/20 px-3 py-1.5 text-xs text-white hover:bg-white/30"
               >
                 <Share2 className="w-3 h-3" />

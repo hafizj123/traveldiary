@@ -10,7 +10,7 @@ import GalleryView from '../../components/gallery/GalleryView'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 import { fmtDateRange } from '../../utils/formatDate'
 import { getMethod } from '../../utils/travelIcons'
-import { buildShareUrlFromSlug } from '../../utils/share'
+import { buildShareUrlFromSlug, copyTextToClipboard } from '../../utils/share'
 import toast from 'react-hot-toast'
 
 const TABS = [
@@ -199,6 +199,15 @@ export default function TripDetailPage() {
     }
   }
 
+  const handleCopyShareLink = async () => {
+    try {
+      await copyTextToClipboard(shareUrl)
+      toast.success('Link copied!')
+    } catch {
+      toast.error('Could not copy link')
+    }
+  }
+
   if (loading) return <Layout><div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div></Layout>
   if (!trip) return null
 
@@ -259,7 +268,7 @@ export default function TripDetailPage() {
                 <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap sm:justify-end">
                   {isSharedTrip && shareUrl ? (
                     <button
-                      onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success('Link copied!') }}
+                      onClick={handleCopyShareLink}
                       className="inline-flex min-h-10 flex-1 items-center justify-center gap-1 rounded-lg bg-white/20 px-3 py-2 text-xs text-white hover:bg-white/30 sm:min-h-0 sm:flex-none sm:py-1.5"
                     >
                       <Share2 className="w-3 h-3" /> Share
@@ -293,7 +302,7 @@ export default function TripDetailPage() {
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <button
                   type="button"
-                  onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success('Link copied!') }}
+                  onClick={handleCopyShareLink}
                   className="min-h-11 rounded-lg bg-primary-600 px-3 py-2 text-xs font-medium text-white hover:bg-primary-700 sm:min-h-0"
                 >
                   Copy link
