@@ -1,7 +1,8 @@
 import re
 import secrets
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import httpx
 
@@ -12,8 +13,10 @@ from ..schemas.auth import (
     RegisterRequest,
     VerifyOTPRequest,
     ResendOTPRequest,
+    ForgotPasswordRequest,
     LoginRequest,
     GoogleLoginRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UserResponse,
 )
@@ -23,6 +26,9 @@ from ..services.email_service import generate_otp, get_otp_expiry, send_otp_emai
 from ..config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+OTP_PURPOSE_VERIFY_EMAIL = "verify_email"
+OTP_PURPOSE_RESET_PASSWORD = "reset_password"
 
 
 def _auto_username(email: str, db: Session) -> str:
@@ -36,6 +42,28 @@ def _auto_username(email: str, db: Session) -> str:
 
 def _unusable_password_hash() -> str:
     return hash_password(secrets.token_urlsafe(32))
+
+
+def _invalidate_user_otps(db: Session, user_id: int, purpose: str) -> None:
+    db.query(EmailOTP).filter(
+        EmailOTP.user_id == user_id,
+        EmailOTP.purpose == purpose,
+    ).update({"is_used": True})
+
+
+def _create_user_otp(db: Session, user_id: int, purpose: str) -> str:
+    _invalidate_user_otps(db, user_id, purpose)
+    otp_code = generate_otp()
+    db.add(
+        EmailOTP(
+            user_id=user_id,
+            otp_code=otp_code,
+            purpose=purpose,
+            expires_at=get_otp_expiry(),
+        )
+    )
+    db.commit()
+    return otp_code
 
 
 async def _verify_google_credential(credential: str) -> dict:
@@ -97,10 +125,7 @@ async def register(data: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    otp_code = generate_otp()
-    db.add(EmailOTP(user_id=user.id, otp_code=otp_code, expires_at=get_otp_expiry()))
-    db.commit()
-
+    otp_code = _create_user_otp(db, user.id, OTP_PURPOSE_VERIFY_EMAIL)
     await send_otp_email(user.email, otp_code)
 
     resp = {
@@ -123,6 +148,7 @@ def verify_otp(data: VerifyOTPRequest, db: Session = Depends(get_db)):
         .filter(
             EmailOTP.user_id == user.id,
             EmailOTP.otp_code == data.otp_code,
+            EmailOTP.purpose == OTP_PURPOSE_VERIFY_EMAIL,
             EmailOTP.is_used == False,
             EmailOTP.expires_at > datetime.utcnow(),
         )
@@ -145,18 +171,73 @@ async def resend_otp(data: ResendOTPRequest, db: Session = Depends(get_db)):
     if user.is_verified:
         raise HTTPException(400, "Email already verified")
 
-    db.query(EmailOTP).filter(EmailOTP.user_id == user.id).update({"is_used": True})
-
-    otp_code = generate_otp()
-    db.add(EmailOTP(user_id=user.id, otp_code=otp_code, expires_at=get_otp_expiry()))
-    db.commit()
-
+    otp_code = _create_user_otp(db, user.id, OTP_PURPOSE_VERIFY_EMAIL)
     await send_otp_email(user.email, otp_code)
 
     resp = {"message": "OTP resent."}
     if settings.DEBUG and not settings.SMTP_USER:
         resp["debug_otp"] = otp_code
     return resp
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    response = {
+        "message": "If an eligible local account exists for this email, a reset code has been sent.",
+    }
+
+    if not user:
+        return response
+    if getattr(user, "auth_provider", "local") == "google":
+        return response
+    if not getattr(user, "is_active", True):
+        return response
+
+    otp_code = _create_user_otp(db, user.id, OTP_PURPOSE_RESET_PASSWORD)
+    await send_otp_email(
+        user.email,
+        otp_code,
+        subject="Travel Diary - Password Reset Code",
+        heading="Travel Diary Password Reset",
+        intro_text="Use this code to reset your password:",
+    )
+
+    if settings.DEBUG and not settings.SMTP_USER:
+        response["debug_otp"] = otp_code
+    return response
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    if len(data.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(400, "Invalid or expired reset code")
+    if getattr(user, "auth_provider", "local") == "google":
+        raise HTTPException(400, "This account uses Google sign-in. Continue with Google instead.")
+
+    otp = (
+        db.query(EmailOTP)
+        .filter(
+            EmailOTP.user_id == user.id,
+            EmailOTP.otp_code == data.otp_code,
+            EmailOTP.purpose == OTP_PURPOSE_RESET_PASSWORD,
+            EmailOTP.is_used == False,
+            EmailOTP.expires_at > datetime.utcnow(),
+        )
+        .first()
+    )
+    if not otp:
+        raise HTTPException(400, "Invalid or expired reset code")
+
+    otp.is_used = True
+    user.password_hash = hash_password(data.new_password)
+    user.is_verified = True
+    db.commit()
+    return {"message": "Password reset successful. You can now sign in."}
 
 
 @router.post("/login", response_model=TokenResponse)

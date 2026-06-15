@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { Globe, MapPin, Clock, Images, Route, Share2, BookOpen } from 'lucide-react'
 import { publicApi } from '../../api/public'
 import { useAuth } from '../../contexts/AuthContext'
+import Navbar from '../../components/layout/Navbar'
 import TripMap from '../../components/map/TripMap'
 import TimelineView from '../../components/timeline/TimelineView'
 import GalleryView from '../../components/gallery/GalleryView'
@@ -39,34 +40,45 @@ export default function PublicTripPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex h-16 items-center justify-between">
-          <Link to={user ? '/dashboard' : '/'} className="flex items-center gap-2 font-bold text-primary-600">
-            <Globe className="w-5 h-5" /> Travel Diary
-          </Link>
-          <div className="flex items-center gap-3">
-            {data?.owner ? (
-              <Link to={`/u/${data.owner}`} className="text-sm text-slate-500 hover:text-primary-600">
-                View {data.owner}'s trips
-              </Link>
-            ) : null}
-            <Link to="/shared-trips" className="text-sm text-primary-600 font-medium hover:underline">
-              Shared Trips
+      {user ? (
+        <Navbar />
+      ) : (
+        <header className="sticky top-0 z-50 border-b border-slate-100 bg-white">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+            <Link to="/" className="flex items-center gap-2 font-bold text-primary-600">
+              <Globe className="w-5 h-5" /> Travel Diary
             </Link>
-            {user ? (
-              <Link to="/dashboard" className="text-sm text-primary-600 font-medium hover:underline">
-                Dashboard
+            <div className="flex items-center gap-3">
+              {data?.owner ? (
+                <Link to={`/u/${data.owner}`} className="text-sm text-slate-500 hover:text-primary-600">
+                  View {data.owner}'s trips
+                </Link>
+              ) : null}
+              <Link to="/shared-trips" className="text-sm font-medium text-primary-600 hover:underline">
+                Shared Trips
               </Link>
-            ) : null}
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
         {error ? (
           <div className="text-center py-24 text-slate-400">{error}</div>
         ) : data && (
           <>
+            {user && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                {data?.owner ? (
+                  <Link to={`/u/${data.owner}`} className="text-sm font-medium text-slate-600 hover:text-primary-600">
+                    View {data.owner}'s trips
+                  </Link>
+                ) : <span />}
+                <Link to="/shared-trips" className="text-sm font-medium text-primary-600 hover:underline">
+                  Shared Trips
+                </Link>
+              </div>
+            )}
             <div
               className="relative rounded-2xl overflow-hidden h-52 bg-gradient-to-br from-primary-600 to-sky-500"
               style={data.trip.cover_image_url
@@ -86,7 +98,7 @@ export default function PublicTripPage() {
                 <h1 className="text-2xl font-bold text-white">{data.trip.title}</h1>
                 <p className="text-white/70 text-sm">{fmtDateRange(data.trip.start_date, data.trip.end_date)}</p>
                 <p className="text-white/50 text-xs mt-1">
-                  {data.points.length} places · shared by {data.owner}
+                  {data.points.length} places | shared by {data.owner}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-white/70">
                   <span>{data.trip.public_stats?.unique_views_total || 0} unique views</span>
@@ -156,7 +168,7 @@ export default function PublicTripPage() {
                             <Icon className="w-4 h-4" style={{ color: method.color }} />
                           </div>
                           <p className="text-sm font-medium text-slate-700">
-                            {from?.place_name} → {to?.place_name}
+                            {from?.place_name} {'->'} {to?.place_name}
                             <span className="font-normal text-slate-400 ml-2">({method.label})</span>
                           </p>
                         </div>

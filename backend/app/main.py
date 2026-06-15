@@ -203,6 +203,30 @@ def _ensure_user_columns() -> None:
 _ensure_user_columns()
 
 
+def _ensure_email_otp_columns() -> None:
+    inspector = inspect(engine)
+    try:
+        columns = {column["name"] for column in inspector.get_columns("email_otps")}
+    except Exception:
+        return
+
+    missing_columns = {
+        "purpose": "ALTER TABLE email_otps ADD COLUMN purpose VARCHAR(32) NOT NULL DEFAULT 'verify_email'",
+    }
+
+    with engine.begin() as conn:
+        for column_name, ddl in missing_columns.items():
+            if column_name in columns:
+                continue
+            conn.execute(text(ddl))
+        conn.execute(
+            text("UPDATE email_otps SET purpose = 'verify_email' WHERE purpose IS NULL OR TRIM(purpose) = ''")
+        )
+
+
+_ensure_email_otp_columns()
+
+
 def _ensure_default_search_aliases() -> None:
     db = SessionLocal()
     try:

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { Globe } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -12,15 +12,18 @@ import heroImage from '../../image/pexels-marina-zasorina-7634437.jpg'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { login } = useAuth()
   const googleAvailable = isGoogleSignInAvailable()
-  const [form, setForm] = useState({ email: '', password: '' })
+  const [form, setForm] = useState({ email: location.state?.email || '', password: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState(location.state?.resetSuccess || '')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setNotice('')
     setLoading(true)
     try {
       const token = await authApi.login(form)
@@ -42,6 +45,7 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async (credential) => {
     setError('')
+    setNotice('')
     setLoading(true)
     try {
       const token = await authApi.googleLogin(credential)
@@ -107,6 +111,7 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
               <div className="space-y-4">
+                {notice ? <div className="rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">{notice}</div> : null}
                 {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
                 <Input
                   label="Email"
@@ -124,6 +129,11 @@ export default function LoginPage() {
                   required
                   placeholder="Password"
                 />
+                <div className="flex justify-end">
+                  <Link to="/forgot-password" className="text-sm font-medium text-primary-600 hover:underline">
+                    Forgot password?
+                  </Link>
+                </div>
                 <Button type="submit" loading={loading} className="w-full">
                   Sign in
                 </Button>

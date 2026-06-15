@@ -238,37 +238,37 @@ export default function TripDetailPage() {
           </Link>
 
           <div
-            className="relative h-44 overflow-hidden rounded-2xl bg-gradient-to-br from-primary-600 to-sky-500 lg:h-48"
+            className="relative min-h-[19rem] overflow-hidden rounded-2xl bg-gradient-to-br from-primary-600 to-sky-500 sm:min-h-[21rem] lg:h-48 lg:min-h-0"
             style={trip.cover_image_url ? { backgroundImage: `url(${trip.cover_image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
           >
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-            <div className="absolute bottom-4 left-5 right-5">
-              <div className="flex items-end justify-between gap-4">
-                <div>
-                  <h1 className="text-2xl font-bold text-white">{trip.title}</h1>
+            <div className="absolute bottom-4 left-4 right-4 sm:left-5 sm:right-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <div className="min-w-0">
+                  <h1 className="max-w-full break-words text-3xl font-bold leading-tight text-white sm:text-2xl">{trip.title}</h1>
                   {(trip.start_date || trip.end_date) && (
-                    <p className="text-sm text-white/70 mt-1">{fmtDateRange(trip.start_date, trip.end_date)}</p>
+                    <p className="mt-2 max-w-full break-words text-sm text-white/70">{fmtDateRange(trip.start_date, trip.end_date)}</p>
                   )}
-                  <p className="text-xs text-white/70 mt-1">{visibilityLabel} trip</p>
+                  <p className="mt-1 text-xs text-white/70">{visibilityLabel} trip</p>
                   {trip.stats && (
-                    <p className="text-xs text-white/60 mt-1">
-                      {trip.stats.total_points} places · {trip.stats.total_countries} {trip.stats.total_countries === 1 ? 'country' : 'countries'}
+                    <p className="mt-1 max-w-full break-words text-xs text-white/60">
+                      {trip.stats.total_points} places | {trip.stats.total_countries} {trip.stats.total_countries === 1 ? 'country' : 'countries'}
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap sm:justify-end">
                   {isSharedTrip && shareUrl ? (
                     <button
                       onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success('Link copied!') }}
-                      className="flex items-center gap-1 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-lg"
+                      className="inline-flex min-h-10 flex-1 items-center justify-center gap-1 rounded-lg bg-white/20 px-3 py-2 text-xs text-white hover:bg-white/30 sm:min-h-0 sm:flex-none sm:py-1.5"
                     >
                       <Share2 className="w-3 h-3" /> Share
                     </button>
                   ) : null}
-                  <Link to={`/trips/${tripId}/edit`} className="flex items-center gap-1 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-lg">
+                  <Link to={`/trips/${tripId}/edit`} className="inline-flex min-h-10 flex-1 items-center justify-center gap-1 rounded-lg bg-white/20 px-3 py-2 text-xs text-white hover:bg-white/30 sm:min-h-0 sm:flex-none sm:py-1.5">
                     <Edit2 className="w-3 h-3" /> Edit
                   </Link>
-                  <button onClick={handleDeleteTrip} className="flex items-center gap-1 bg-red-500/80 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg">
+                  <button onClick={handleDeleteTrip} className="inline-flex min-h-10 flex-1 items-center justify-center gap-1 rounded-lg bg-red-500/80 px-3 py-2 text-xs text-white hover:bg-red-600 sm:min-h-0 sm:flex-none sm:py-1.5">
                     <Trash2 className="w-3 h-3" /> Delete
                   </button>
                 </div>
@@ -290,11 +290,11 @@ export default function TripDetailPage() {
               </p>
             </div>
             {isSharedTrip && shareUrl ? (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <button
                   type="button"
                   onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success('Link copied!') }}
-                  className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-medium text-white hover:bg-primary-700"
+                  className="min-h-11 rounded-lg bg-primary-600 px-3 py-2 text-xs font-medium text-white hover:bg-primary-700 sm:min-h-0"
                 >
                   Copy link
                 </button>
@@ -302,14 +302,14 @@ export default function TripDetailPage() {
                   href={shareUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:min-h-0"
                 >
                   Open shared page
                 </a>
                 <button
                   type="button"
                   onClick={handleRegenerateShare}
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  className="min-h-11 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 sm:min-h-0"
                 >
                   Regenerate link
                 </button>
@@ -339,10 +339,10 @@ export default function TripDetailPage() {
                 <p className="mt-2 text-xs text-slate-500">Companions: {trip.travel_companions}</p>
               ) : null}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <Link
                 to={`/trips/${tripId}/journal`}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 sm:min-h-0"
               >
                 <BookOpen className="h-4 w-4" />
                 {trip.journal_exists ? 'Open journal' : 'Create journal'}
@@ -350,7 +350,7 @@ export default function TripDetailPage() {
               {trip.visibility !== 'private' && trip.share_slug && trip.journal_exists ? (
                 <Link
                   to={`/shared/${trip.share_slug}/journal`}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 sm:min-h-0"
                 >
                   Public journal
                 </Link>
@@ -379,10 +379,10 @@ export default function TripDetailPage() {
           ))}
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-stretch sm:justify-end">
           <Link
             to={`/trips/${tripId}/points/new?returnTo=${tab}`}
-            className="flex items-center gap-2 bg-primary-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700 sm:min-h-0 sm:w-auto"
           >
             <Plus className="w-4 h-4" /> Add Location
           </Link>
@@ -454,9 +454,9 @@ export default function TripDetailPage() {
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-slate-700">
-                        {from?.place_name || '?'} → {to?.place_name || '?'}
+                        {from?.place_name || '?'} {'->'} {to?.place_name || '?'}
                       </p>
-                      <p className="text-xs text-slate-400">{method.label}{seg.description ? ` · ${seg.description}` : ''}</p>
+                      <p className="text-xs text-slate-400">{method.label}{seg.description ? ` | ${seg.description}` : ''}</p>
                     </div>
                   </div>
                 )

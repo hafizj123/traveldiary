@@ -7,7 +7,7 @@ import { getMethod } from '../../utils/travelIcons'
 import { fmtDate } from '../../utils/formatDate'
 import { DEFAULT_MAP_PROPS, DEFAULT_TILE_PROPS } from './mapConfig'
 
-// ─── Pin icon ─────────────────────────────────────────────────────────────────
+// Pin icon
 function createPin(seq, color = '#4f46e5') {
   return L.divIcon({
     html: `<div style="background:${color};color:#fff;width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;"><span style="transform:rotate(45deg)">${seq + 1}</span></div>`,
@@ -15,7 +15,7 @@ function createPin(seq, color = '#4f46e5') {
   })
 }
 
-// ─── Auto-fit bounds (only on first mount, never on re-render) ───────────────
+// Auto-fit bounds only on first mount.
 function FitBounds({ points }) {
   const map = useMap()
   const fitted = useRef(false)
@@ -29,7 +29,7 @@ function FitBounds({ points }) {
   return null
 }
 
-// ─── Persistent route cache (survives refreshes via localStorage) ─────────────
+// Persistent route cache that survives refreshes via localStorage.
 const LS_KEY = 'td_route_cache_v11'
 const _routeCache = new Map(
   (() => { try { return Object.entries(JSON.parse(localStorage.getItem(LS_KEY) || '{}')) } catch { return [] } })()
@@ -110,7 +110,7 @@ function shouldFallbackShortWalkRoute(route, from, to) {
   return false
 }
 
-// ─── Routing helpers ──────────────────────────────────────────────────────────
+// Routing helpers
 async function fetchOsrmRoute(lat1, lon1, lat2, lon2, profile) {
   try {
     const url =
@@ -125,15 +125,17 @@ async function fetchOsrmRoute(lat1, lon1, lat2, lon2, profile) {
   return null
 }
 
-/** Great-circle arc for flights */
+// Great-circle arc for flights.
 function greatCirclePoints(lat1, lon1, lat2, lon2, n = 60) {
   const toRad = d => d * Math.PI / 180
   const toDeg = r => r * 180 / Math.PI
-  const φ1 = toRad(lat1), λ1 = toRad(lon1)
-  const φ2 = toRad(lat2), λ2 = toRad(lon2)
+  const phi1 = toRad(lat1)
+  const lambda1 = toRad(lon1)
+  const phi2 = toRad(lat2)
+  const lambda2 = toRad(lon2)
   const d = 2 * Math.asin(Math.sqrt(
-    Math.sin((φ2 - φ1) / 2) ** 2 +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin((λ2 - λ1) / 2) ** 2
+    Math.sin((phi2 - phi1) / 2) ** 2 +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin((lambda2 - lambda1) / 2) ** 2
   ))
   if (d < 0.01) return [[lat1, lon1], [lat2, lon2]]
   const pts = []
@@ -141,17 +143,18 @@ function greatCirclePoints(lat1, lon1, lat2, lon2, n = 60) {
     const f = i / n
     const A = Math.sin((1 - f) * d) / Math.sin(d)
     const B = Math.sin(f * d) / Math.sin(d)
-    const x = A * Math.cos(φ1) * Math.cos(λ1) + B * Math.cos(φ2) * Math.cos(λ2)
-    const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2)
-    const z = A * Math.sin(φ1) + B * Math.sin(φ2)
+    const x = A * Math.cos(phi1) * Math.cos(lambda1) + B * Math.cos(phi2) * Math.cos(lambda2)
+    const y = A * Math.cos(phi1) * Math.sin(lambda1) + B * Math.cos(phi2) * Math.sin(lambda2)
+    const z = A * Math.sin(phi1) + B * Math.sin(phi2)
     pts.push([toDeg(Math.atan2(z, Math.sqrt(x * x + y * y))), toDeg(Math.atan2(y, x))])
   }
   return pts
 }
 
-/** Quadratic Bézier arc — fallback for ferry / unknown */
+// Quadratic Bezier arc fallback for ferry or unknown transport.
 function bezierCurve(lat1, lon1, lat2, lon2, n = 40) {
-  const dlat = lat2 - lat1, dlon = lon2 - lon1
+  const dlat = lat2 - lat1
+  const dlon = lon2 - lon1
   const len = Math.sqrt(dlat * dlat + dlon * dlon) || 1
   const off = len * 0.25
   const cx = (lat1 + lat2) / 2 - (dlon / len) * off
@@ -246,8 +249,7 @@ async function computeRoute(from, to, seg) {
       }
       return null
     }
-    case 'ferry':
-    {
+    case 'ferry': {
       const r = await fetchFerryRoute(from, to)
       result = r || straight
       break
@@ -275,7 +277,7 @@ async function computeRoute(from, to, seg) {
   return result
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// Component
 export default function TripMap({
   points = [],
   segments = [],
@@ -289,7 +291,8 @@ export default function TripMap({
     const sMap = {}
     segments.forEach(s => { sMap[`${s.from_point_id}-${s.to_point_id}`] = s })
     for (let i = 0; i < valid.length - 1; i++) {
-      const a = valid[i], b = valid[i + 1]
+      const a = valid[i]
+      const b = valid[i + 1]
       const seg = sMap[`${a.id}-${b.id}`]
       if (Array.isArray(seg?.route_geometry) && seg.route_geometry.length > 1) {
         seed[`${a.id}-${b.id}`] = seg.route_geometry
@@ -314,7 +317,8 @@ export default function TripMap({
     ;(async () => {
       const computed = {}
       for (let i = 0; i < validPoints.length - 1; i++) {
-        const a = validPoints[i], b = validPoints[i + 1]
+        const a = validPoints[i]
+        const b = validPoints[i + 1]
         const seg = segMap[`${a.id}-${b.id}`]
         const key = `${a.id}-${b.id}`
         const r = await computeRoute(a, b, seg)
@@ -356,8 +360,8 @@ export default function TripMap({
       {validPoints.map((pt, i) => {
         if (i >= validPoints.length - 1) return null
         const next = validPoints[i + 1]
-        const key  = `${pt.id}-${next.id}`
-        const seg  = segMap[key]
+        const key = `${pt.id}-${next.id}`
+        const seg = segMap[key]
         const method = getMethod(seg?.travel_method || 'other')
         const trainFallbackPositions = seg?.travel_method === 'train'
           && Array.isArray(seg?.route_anchor_start)
@@ -401,10 +405,10 @@ export default function TripMap({
                 dashArray: '8,6',
                 opacity: 0.9,
               } : {
-                color:     method.color,
-                weight:    seg?.travel_method === 'flight' ? 2 : 3,
+                color: method.color,
+                weight: seg?.travel_method === 'flight' ? 2 : 3,
                 dashArray: method.lineStyle ? method.lineStyle.join(',') : null,
-                opacity:   0.85,
+                opacity: 0.85,
               }}
             />
             {seg?.travel_method === 'train' && connectorEnd && shouldDrawConnector(
@@ -441,9 +445,9 @@ export default function TripMap({
                   <img src={`https://openweathermap.org/img/wn/${pt.weather_data.icon}.png`} alt="" className="w-6 h-6" />
                   <span>
                     {pt.weather_data.temp_max != null
-                      ? `${pt.weather_data.temp_min}–${pt.weather_data.temp_max}°C`
-                      : `${Math.round(pt.weather_data.temp || 0)}°C`}
-                    {' · '}{pt.weather_data.description}
+                      ? `${pt.weather_data.temp_min}-${pt.weather_data.temp_max} C`
+                      : `${Math.round(pt.weather_data.temp || 0)} C`}
+                    {' | '}{pt.weather_data.description}
                   </span>
                 </div>
               )}

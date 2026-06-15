@@ -4,10 +4,10 @@ import { useAuth } from '../contexts/AuthContext'
 import heroImage from '../image/pexels-marina-zasorina-7634437.jpg'
 
 const FEATURES = [
-  { Icon: Globe,  title: 'World Map',    desc: 'See all your visits pinned on an interactive world map with color-coded travel routes.' },
-  { Icon: Clock,  title: 'Timeline',     desc: 'Relive your journey as a beautiful chronological story with photos and descriptions.' },
-  { Icon: Map,    title: 'Route Planner',desc: 'Track every leg of your trip — flight, train, car, ferry, walk, and more.' },
-  { Icon: Share2, title: 'Public Sharing',desc: 'Share your trip with a public link so others can explore your adventure.' },
+  { Icon: Globe, title: 'World Map', desc: 'See all your visits pinned on an interactive world map with color-coded travel routes.' },
+  { Icon: Clock, title: 'Timeline', desc: 'Relive your journey as a beautiful chronological story with photos and descriptions.' },
+  { Icon: Map, title: 'Route Planner', desc: 'Track every leg of your trip - flight, train, car, ferry, walk, and more.' },
+  { Icon: Share2, title: 'Public Sharing', desc: 'Share your trip with a public link so others can explore your adventure.' },
 ]
 
 export default function LandingPage() {
@@ -29,7 +29,7 @@ export default function LandingPage() {
               </Link>
             ) : (
               <>
-                <Link to="/login"    className="text-sm font-medium text-slate-600 hover:text-primary-600">Sign in</Link>
+                <Link to="/login" className="text-sm font-medium text-slate-600 hover:text-primary-600">Sign in</Link>
                 <Link to="/register" className="bg-primary-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
                   Get started
                 </Link>
@@ -82,10 +82,10 @@ export default function LandingPage() {
       <section className="bg-slate-900 text-white py-6 px-4 overflow-hidden">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center gap-2 text-sm text-slate-300 overflow-x-auto whitespace-nowrap pb-1 justify-center">
-            {['Kuala Lumpur ✈️', 'Doha ✈️', 'Zurich 🚆', 'Lucerne 🚆', 'Interlaken 🚆', 'Lauterbrunnen'].map((s, i) => (
+            {['Kuala Lumpur (Flight)', 'Doha (Flight)', 'Zurich (Train)', 'Lucerne (Train)', 'Interlaken (Train)', 'Lauterbrunnen'].map((s, i) => (
               <span key={i} className="flex items-center gap-2">
                 <span className="text-slate-400 bg-slate-800 px-3 py-1 rounded-full">{s}</span>
-                {i < 5 && <span className="text-slate-600">→</span>}
+                {i < 5 && <span className="text-slate-600">-&gt;</span>}
               </span>
             ))}
           </div>
@@ -122,7 +122,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="text-center py-8 text-sm text-slate-400 border-t border-slate-100">
-        Travel Diary · Built with FastAPI + React + Leaflet.js
+        Travel Diary - Built with FastAPI + React + Leaflet.js
       </footer>
     </div>
   )

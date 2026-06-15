@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { CalendarDays, Camera, MapPinned, Quote, Route, Users } from 'lucide-react'
 
 import { fmtDateRange } from '../../utils/formatDate'
@@ -11,11 +12,132 @@ function formatVisitDate(value) {
   })
 }
 
+function useImageTextTone(imageUrl, sampleRegion = null) {
+  const [tone, setTone] = useState('light')
+
+  useEffect(() => {
+    if (!imageUrl || typeof window === 'undefined') {
+      setTone('light')
+      return undefined
+    }
+
+    let active = true
+    const image = new window.Image()
+    image.crossOrigin = 'anonymous'
+    image.decoding = 'async'
+
+    image.onload = () => {
+      if (!active) return
+
+      try {
+        const canvas = document.createElement('canvas')
+        const context = canvas.getContext('2d', { willReadFrequently: true })
+        if (!context) {
+          setTone('light')
+          return
+        }
+
+        const sampleSize = 24
+        canvas.width = sampleSize
+        canvas.height = sampleSize
+
+        const sourceX = Math.max(0, Math.floor((sampleRegion?.x ?? 0) * image.naturalWidth))
+        const sourceY = Math.max(0, Math.floor((sampleRegion?.y ?? 0) * image.naturalHeight))
+        const sourceWidth = Math.max(1, Math.floor((sampleRegion?.width ?? 1) * image.naturalWidth))
+        const sourceHeight = Math.max(1, Math.floor((sampleRegion?.height ?? 1) * image.naturalHeight))
+
+        context.drawImage(
+          image,
+          sourceX,
+          sourceY,
+          Math.min(sourceWidth, image.naturalWidth - sourceX),
+          Math.min(sourceHeight, image.naturalHeight - sourceY),
+          0,
+          0,
+          sampleSize,
+          sampleSize
+        )
+
+        const { data } = context.getImageData(0, 0, sampleSize, sampleSize)
+        let luminanceTotal = 0
+        let pixelCount = 0
+
+        for (let index = 0; index < data.length; index += 4) {
+          const alpha = data[index + 3]
+          if (alpha === 0) continue
+
+          const red = data[index]
+          const green = data[index + 1]
+          const blue = data[index + 2]
+          luminanceTotal += (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
+          pixelCount += 1
+        }
+
+        if (!pixelCount) {
+          setTone('light')
+          return
+        }
+
+        const averageLuminance = luminanceTotal / pixelCount
+        setTone(averageLuminance > 160 ? 'dark' : 'light')
+      } catch {
+        setTone('light')
+      }
+    }
+
+    image.onerror = () => {
+      if (active) setTone('light')
+    }
+
+    image.src = imageUrl
+
+    return () => {
+      active = false
+    }
+  }, [imageUrl, sampleRegion?.height, sampleRegion?.width, sampleRegion?.x, sampleRegion?.y])
+
+  return tone
+}
+
+function overlayToneClasses(tone) {
+  const darkText = tone === 'dark'
+
+  return {
+    overlay: darkText ? 'journal-image-overlay-dark' : 'journal-image-overlay-light',
+    pill: darkText ? 'journal-pill journal-pill-light' : 'journal-pill',
+    providerPill: darkText ? 'journal-provider-pill journal-provider-pill-light' : 'journal-provider-pill',
+    eyebrow: darkText ? 'text-slate-800/75' : 'text-white/70',
+    title: darkText ? 'text-slate-950' : 'text-white',
+    meta: darkText ? 'text-slate-800/80' : 'text-white/82',
+  }
+}
+
+function buildMemoryCaption(chapter) {
+  const firstLocation = chapter?.locations?.find((location) => location?.place_name)?.place_name?.trim()
+  if (firstLocation) return firstLocation
+
+  const heading = chapter?.heading?.trim()
+  if (heading) return heading
+
+  const visitDate = formatVisitDate(chapter?.visit_date)
+  if (visitDate) return visitDate
+
+  return 'Photo archive'
+}
+
 function uniqueImagesFromChapters(chapters) {
-  return chapters
-    .flatMap((chapter) => chapter.image_urls || [])
-    .filter(Boolean)
-    .filter((imageUrl, index, array) => array.indexOf(imageUrl) === index)
+  const seen = new Set()
+
+  return chapters.flatMap((chapter) => (
+    (chapter.image_urls || []).flatMap((imageUrl) => {
+      if (!imageUrl || seen.has(imageUrl)) return []
+      seen.add(imageUrl)
+      return [{
+        url: imageUrl,
+        caption: buildMemoryCaption(chapter),
+      }]
+    })
+  ))
 }
 
 function JournalInput({ editable, value, onChange, className, multiline = false, rows = 4 }) {
@@ -58,12 +180,12 @@ function MemoryGallery({ images, totalPhotos, templateKey }) {
         </div>
       </div>
       <div className={`journal-memory-grid journal-memory-grid-${Math.min(images.length, 8)}`}>
-        {images.map((imageUrl, index) => (
-          <figure key={`${imageUrl}-${index}`} className="journal-memory-card">
-            <img src={imageUrl} alt={`Trip memory ${index + 1}`} className="journal-memory-image" />
+        {images.map((image, index) => (
+          <figure key={`${image.url}-${index}`} className="journal-memory-card">
+            <img src={image.url} alt={`Trip memory ${index + 1}`} className="journal-memory-image" />
             <figcaption className="journal-memory-caption">
               <span>Memory {String(index + 1).padStart(2, '0')}</span>
-              <span>Travel diary</span>
+              <span>{image.caption}</span>
             </figcaption>
           </figure>
         ))}
@@ -90,6 +212,29 @@ function FactGrid({ factCards, templateKey }) {
   )
 }
 
+function EditorialChapterMedia({ chapter, index, editable, updateChapter }) {
+  const imageUrl = chapter.image_urls?.[0]
+  const tone = useImageTextTone(imageUrl, { x: 0.04, y: 0.52, width: 0.62, height: 0.42 })
+  const contrast = overlayToneClasses(tone)
+
+  return (
+    <div className={`journal-chapter-media ${index % 2 === 1 ? 'lg:order-2' : ''}`}>
+      {imageUrl ? <img src={imageUrl} alt={chapter.heading} className="journal-chapter-image" /> : <div className="journal-chapter-fallback" />}
+      <div className={`journal-chapter-media-overlay ${contrast.overlay}`} />
+      <div className="journal-chapter-media-content">
+        <div className="journal-pill-subtle">Chapter {String(chapter.chapter_index || index + 1).padStart(2, '0')}</div>
+        <JournalInput
+          editable={editable}
+          value={chapter.heading || ''}
+          onChange={(value) => updateChapter(index, { heading: value })}
+          className={`mt-4 font-serif text-3xl font-semibold leading-tight ${contrast.title}`}
+        />
+        <p className="mt-3 text-sm text-white/82">{formatVisitDate(chapter.visit_date)}</p>
+      </div>
+    </div>
+  )
+}
+
 function EditorialTemplate({
   trip,
   journal,
@@ -105,26 +250,28 @@ function EditorialTemplate({
   showProviderLabel,
 }) {
   const coverImage = journal?.content_json?.cover_image_url || trip?.cover_image_url
+  const heroTone = useImageTextTone(coverImage)
+  const heroContrast = overlayToneClasses(heroTone)
 
   return (
     <article className="journal-screen-book journal-shell journal-template-editorial">
       <section className="journal-hero journal-hero-editorial">
         {coverImage ? <img src={coverImage} alt={journal.title} className="journal-hero-image" /> : null}
-        <div className="journal-hero-overlay" />
+        <div className={`journal-hero-overlay ${heroContrast.overlay}`} />
         <div className="journal-hero-content">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="journal-pill">Travel Journal</div>
-            {showProviderLabel ? <div className="journal-provider-pill">{journal?.content_json?.provider_label || 'Story draft'}</div> : null}
+            <div className={heroContrast.pill}>Travel Journal</div>
+            {showProviderLabel ? <div className={heroContrast.providerPill}>{journal?.content_json?.provider_label || 'Story draft'}</div> : null}
           </div>
           <div className="max-w-4xl">
-            <p className="journal-section-eyebrow text-white/70">Your personal travel timeline and world map diary</p>
+            <p className={`journal-section-eyebrow ${heroContrast.eyebrow}`}>Your personal travel timeline and world map diary</p>
             <JournalInput
               editable={editable}
               value={journal.title}
               onChange={(value) => updateField('title', value)}
-              className="mt-4 font-serif text-4xl font-semibold leading-tight text-white sm:text-5xl lg:text-6xl"
+              className={`mt-4 font-serif text-4xl font-semibold leading-tight sm:text-5xl lg:text-6xl ${heroContrast.title}`}
             />
-            <p className="mt-5 max-w-2xl text-[15px] leading-7 text-white/82">
+            <p className={`mt-5 max-w-2xl text-[15px] leading-7 ${heroContrast.meta}`}>
               {dateRangeLabel}
               {ownerName ? ` / by ${ownerName}` : ''}
             </p>
@@ -177,20 +324,7 @@ function EditorialTemplate({
         <div className="space-y-8">
           {chapters.map((chapter, index) => (
             <section key={`${chapter.visit_date}-${index}`} className="journal-chapter-card journal-chapter-editorial">
-              <div className={`journal-chapter-media ${index % 2 === 1 ? 'lg:order-2' : ''}`}>
-                {chapter.image_urls?.[0] ? <img src={chapter.image_urls[0]} alt={chapter.heading} className="journal-chapter-image" /> : <div className="journal-chapter-fallback" />}
-                <div className="journal-chapter-media-overlay" />
-                <div className="journal-chapter-media-content">
-                  <div className="journal-pill-subtle">Chapter {String(chapter.chapter_index || index + 1).padStart(2, '0')}</div>
-                  <JournalInput
-                    editable={editable}
-                    value={chapter.heading || ''}
-                    onChange={(value) => updateChapter(index, { heading: value })}
-                    className="mt-4 font-serif text-3xl font-semibold leading-tight text-white"
-                  />
-                  <p className="mt-3 text-sm text-white/72">{formatVisitDate(chapter.visit_date)}</p>
-                </div>
-              </div>
+              <EditorialChapterMedia chapter={chapter} index={index} editable={editable} updateChapter={updateChapter} />
               <div className={`p-6 sm:p-7 ${index % 2 === 1 ? 'lg:order-1' : ''}`}>
                 <div className="journal-quote-card">
                   <div className="journal-fact-icon"><Quote className="h-4 w-4" /></div>
@@ -387,6 +521,8 @@ function FieldNotesTemplate(props) {
   } = props
 
   const coverImage = journal?.content_json?.cover_image_url || trip?.cover_image_url
+  const heroTone = useImageTextTone(coverImage)
+  const heroContrast = overlayToneClasses(heroTone)
 
   return (
     <article className="journal-screen-book journal-shell journal-template-field-notes">
@@ -410,16 +546,16 @@ function FieldNotesTemplate(props) {
           <div className="journal-field-main">
             <div className="journal-field-cover">
               {coverImage ? <img src={coverImage} alt={journal.title} className="journal-hero-image" /> : null}
-              <div className="journal-hero-overlay" />
+              <div className={`journal-hero-overlay ${heroContrast.overlay}`} />
               <div className="journal-field-cover-copy">
-                <p className="journal-section-eyebrow text-white/70">Route story</p>
+                <p className={`journal-section-eyebrow ${heroContrast.eyebrow}`}>Route story</p>
                 <JournalInput
                   editable={editable}
                   value={journal.title}
                   onChange={(value) => updateField('title', value)}
-                  className="mt-4 font-serif text-4xl font-semibold leading-tight text-white sm:text-5xl"
+                  className={`mt-4 font-serif text-4xl font-semibold leading-tight sm:text-5xl ${heroContrast.title}`}
                 />
-                <p className="mt-4 text-[15px] leading-7 text-white/82">
+                <p className={`mt-4 text-[15px] leading-7 ${heroContrast.meta}`}>
                   {dateRangeLabel}
                   {ownerName ? ` / by ${ownerName}` : ''}
                 </p>

@@ -18,6 +18,16 @@ class ResendOTPRequest(BaseModel):
     email: EmailStr
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp_code: str
+    new_password: str
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str

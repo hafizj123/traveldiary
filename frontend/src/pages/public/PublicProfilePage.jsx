@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { Globe, Lock } from 'lucide-react'
 import { publicApi } from '../../api/public'
 import { useAuth } from '../../contexts/AuthContext'
+import Navbar from '../../components/layout/Navbar'
 import TripCard from '../../components/trips/TripCard'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 
@@ -24,27 +25,34 @@ export default function PublicProfilePage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex h-16 items-center justify-between">
-          <Link to={user ? '/dashboard' : '/'} className="flex items-center gap-2 font-bold text-primary-600">
-            <Globe className="w-5 h-5" /> Travel Diary
-          </Link>
-          {user ? (
-            <Link to="/dashboard" className="text-sm text-primary-600 font-medium hover:underline">Dashboard</Link>
-          ) : (
-            <Link to="/login" className="text-sm text-primary-600 font-medium hover:underline">Sign in</Link>
-          )}
-        </div>
-      </header>
+      {user ? (
+        <Navbar />
+      ) : (
+        <header className="sticky top-0 z-50 border-b border-slate-100 bg-white">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+            <Link to="/" className="flex items-center gap-2 font-bold text-primary-600">
+              <Globe className="w-5 h-5" /> Travel Diary
+            </Link>
+            <Link to="/login" className="text-sm font-medium text-primary-600 hover:underline">Sign in</Link>
+          </div>
+        </header>
+      )}
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
         {error ? (
           <div className="text-center py-24">
             <Lock className="w-12 h-12 text-slate-200 mx-auto mb-4" />
             <p className="text-slate-400">{error}</p>
           </div>
         ) : (
-          <>
+          <div className="space-y-8">
+            {user && (
+              <div className="flex justify-end">
+                <Link to="/shared-trips" className="text-sm font-medium text-primary-600 hover:underline">
+                  Shared Trips
+                </Link>
+              </div>
+            )}
             <div className="text-center space-y-2">
               <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto">
                 <span className="text-2xl font-bold text-primary-600">{username[0]?.toUpperCase()}</span>
@@ -62,7 +70,7 @@ export default function PublicProfilePage() {
                 ))}
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>

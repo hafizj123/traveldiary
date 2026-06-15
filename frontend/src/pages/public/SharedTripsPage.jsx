@@ -4,6 +4,7 @@ import { Compass, Globe, TrendingUp, Clock } from 'lucide-react'
 
 import { publicApi } from '../../api/public'
 import { useAuth } from '../../contexts/AuthContext'
+import Navbar from '../../components/layout/Navbar'
 import TripCard from '../../components/trips/TripCard'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 
@@ -30,32 +31,25 @@ export default function SharedTripsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex h-16 items-center justify-between">
-          <Link to={user ? '/dashboard' : '/'} className="flex items-center gap-2 font-bold text-primary-600">
-            <Globe className="w-5 h-5" /> Travel Diary
-          </Link>
-          <div className="flex items-center gap-3">
-            {user ? (
-              <>
-                <Link to="/trips" className="text-sm font-medium text-slate-600 hover:text-primary-600">My Trips</Link>
-                <Link to="/dashboard" className="bg-primary-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
-                  Dashboard
-                </Link>
-              </>
-            ) : (
-              <>
-                <Link to="/login" className="text-sm font-medium text-slate-600 hover:text-primary-600">Sign in</Link>
-                <Link to="/register" className="bg-primary-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
-                  Get started
-                </Link>
-              </>
-            )}
+      {user ? (
+        <Navbar />
+      ) : (
+        <header className="sticky top-0 z-50 border-b border-slate-100 bg-white">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+            <Link to="/" className="flex items-center gap-2 font-bold text-primary-600">
+              <Globe className="w-5 h-5" /> Travel Diary
+            </Link>
+            <div className="flex items-center gap-3">
+              <Link to="/login" className="text-sm font-medium text-slate-600 hover:text-primary-600">Sign in</Link>
+              <Link to="/register" className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700">
+                Get started
+              </Link>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+      <div className="mx-auto max-w-7xl space-y-8 px-4 py-10 sm:px-6 lg:px-8">
         <div className="rounded-3xl bg-gradient-to-br from-sky-600 via-primary-700 to-slate-900 px-6 py-8 text-white shadow-lg">
           <div className="max-w-2xl space-y-3">
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-sm">

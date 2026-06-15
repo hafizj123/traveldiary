@@ -6,6 +6,7 @@ import LandingPage      from './pages/LandingPage'
 import LoginPage        from './pages/auth/LoginPage'
 import RegisterPage     from './pages/auth/RegisterPage'
 import VerifyOTPPage    from './pages/auth/VerifyOTPPage'
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage'
 import DashboardPage    from './pages/DashboardPage'
 import TripsPage        from './pages/trips/TripsPage'
 import CreateTripPage   from './pages/trips/CreateTripPage'
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/login"       element={<LoginPage />} />
           <Route path="/register"    element={<RegisterPage />} />
           <Route path="/verify-otp"  element={<VerifyOTPPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/shared-trips" element={<SharedTripsPage />} />
           <Route path="/shared/:shareSlug" element={<PublicTripPage />} />
           <Route path="/shared/:shareSlug/journal" element={<PublicJournalPage />} />
