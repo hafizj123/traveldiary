@@ -415,6 +415,7 @@ def _build_airport_dataset_metadata(country_name: str, dataset_key: str) -> dict
         "country": normalized_country,
         "city": "",
         "aliases": deduped_aliases,
+        "bounds": _country_bbox(normalized_country),
         "methods": ["flight"],
     }
 

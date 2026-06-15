@@ -936,7 +936,7 @@ class _GeoJsonTransportDataset:
         self.country = (metadata.get("country") or key.replace("_", " ")).title()
         self.city = metadata.get("city") or ""
         self.aliases = [_normalize_text(alias) for alias in metadata.get("aliases") or []]
-        self.bounds = metadata.get("bounds")
+        self.bounds = metadata.get("bounds") or _country_bbox(self.country)
         self._station_lock = threading.Lock()
         self._station_items: Optional[list[dict]] = None
         self._bbox: Optional[tuple[float, float, float, float]] = None
