@@ -1,0 +1,91 @@
+Dataset Upload Steps
+
+Use this whenever GeoJSON import data changes on your local machine and you need to sync those dataset files to the DigitalOcean server again.
+
+Local dataset root:
+- backend/gpkg/hotosm_chn_railways_osm_gpkg/
+
+Most important paths:
+- backend/gpkg/hotosm_chn_railways_osm_gpkg/geojson_file/<country>/
+- backend/gpkg/hotosm_chn_railways_osm_gpkg/imported_dataset_metadata.json
+
+When to use this:
+- You imported or re-imported rail GeoJSON locally for any country or region.
+- You imported airport GeoJSON locally for any country.
+- You added new local datasets such as city, region, or country-level files.
+- Route Policy on the server still shows OSM Only even though the files exist locally.
+
+Why metadata matters:
+- The server does not rely on GeoJSON files alone.
+- imported_dataset_metadata.json tells the app which dataset keys belong to which country.
+- If you upload only the .geojson files but not imported_dataset_metadata.json, the server may not recognize the local dataset correctly.
+
+Option A: Upload one country folder only
+
+Use this when you changed only one country, such as Japan or Italy.
+
+PowerShell:
+
+scp -r .\backend\gpkg\hotosm_chn_railways_osm_gpkg\geojson_file\<country_folder> root@YOUR_DROPLET_IP:/opt/traveldiary-data/hotosm_chn_railways_osm_gpkg/geojson_file/
+scp .\backend\gpkg\hotosm_chn_railways_osm_gpkg\imported_dataset_metadata.json root@YOUR_DROPLET_IP:/opt/traveldiary-data/hotosm_chn_railways_osm_gpkg/
+
+Example for Japan:
+
+scp -r .\backend\gpkg\hotosm_chn_railways_osm_gpkg\geojson_file\japan root@YOUR_DROPLET_IP:/opt/traveldiary-data/hotosm_chn_railways_osm_gpkg/geojson_file/
+scp .\backend\gpkg\hotosm_chn_railways_osm_gpkg\imported_dataset_metadata.json root@YOUR_DROPLET_IP:/opt/traveldiary-data/hotosm_chn_railways_osm_gpkg/
+
+Option B: Upload the whole dataset root
+
+Use this when many countries changed or you want the server to exactly match your local dataset root.
+
+PowerShell:
+
+tar -czf hotosm_chn_railways_osm_gpkg.tgz -C backend/gpkg hotosm_chn_railways_osm_gpkg
+scp .\hotosm_chn_railways_osm_gpkg.tgz root@YOUR_DROPLET_IP:/tmp/
+
+Then on the droplet:
+
+rm -rf /opt/traveldiary-data/hotosm_chn_railways_osm_gpkg
+tar -xzf /tmp/hotosm_chn_railways_osm_gpkg.tgz -C /opt/traveldiary-data
+ln -sfn /opt/traveldiary-data/hotosm_chn_railways_osm_gpkg /var/www/traveldiary/backend/gpkg/hotosm_chn_railways_osm_gpkg
+
+Restart backend after either option
+
+On the droplet:
+
+systemctl restart traveldiary.service
+curl http://127.0.0.1:8000/health
+
+Sanity checks on the droplet
+
+Check one country folder:
+
+ls -l /opt/traveldiary-data/hotosm_chn_railways_osm_gpkg/geojson_file/<country_folder>
+
+Check metadata:
+
+cat /opt/traveldiary-data/hotosm_chn_railways_osm_gpkg/imported_dataset_metadata.json
+
+Check service:
+
+systemctl status traveldiary.service --no-pager
+
+Common issue
+
+Problem:
+- The GeoJSON files are on the server, but Admin Route Policy still shows OSM Only.
+
+Usual cause:
+- imported_dataset_metadata.json was not uploaded together with the GeoJSON files.
+
+Fix:
+- Upload imported_dataset_metadata.json again.
+- Restart traveldiary.service.
+
+Reminder
+
+If local imported datasets change, upload both:
+- the changed country folder under geojson_file/
+- imported_dataset_metadata.json
+
+If many countries changed, upload the full dataset root instead.

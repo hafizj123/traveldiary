@@ -16,6 +16,8 @@ from ..models.train_station import TrainStation
 from ..models.train_station_cache import TrainStationCache
 from ..models.user import User
 from ..services.country_route_policy_service import (
+    country_display_name,
+    country_key_from_name,
     list_country_route_policies_with_capabilities,
     upsert_country_route_policy,
 )
@@ -70,6 +72,11 @@ class GeoJsonImportCreateBody(BaseModel):
 
 
 class CountryRoutePolicyUpdateBody(BaseModel):
+    train_mode: str
+
+
+class CountryRoutePolicyBulkUpdateBody(BaseModel):
+    country_keys: list[str]
     train_mode: str
 
 
@@ -625,6 +632,41 @@ def get_country_route_policies(
 ):
     _require_admin_route_user(user)
     return {"items": list_country_route_policies_with_capabilities(db)}
+
+
+@router.put("/admin/country-route-policies/bulk")
+def put_country_route_policy_bulk(
+    payload: CountryRoutePolicyBulkUpdateBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _require_admin_route_user(user)
+    normalized_keys = [" ".join((key or "").strip().lower().split()) for key in payload.country_keys if str(key or "").strip()]
+    if not normalized_keys:
+        raise HTTPException(status_code=400, detail="At least one country key is required.")
+
+    updated = []
+    failed = []
+    for country_key in normalized_keys:
+        try:
+            row = upsert_country_route_policy(db, country_key, payload.train_mode)
+            updated.append({
+                "country_key": row.country_key,
+                "country_name": row.country_name,
+                "train_mode": row.train_mode,
+            })
+        except ValueError as exc:
+            normalized_failed_key = country_key_from_name(country_key)
+            failed.append({
+                "country_key": normalized_failed_key or country_key,
+                "country_name": country_display_name(normalized_failed_key) if normalized_failed_key else country_key,
+                "error": str(exc),
+            })
+    return {
+        "items": updated,
+        "failed": failed,
+        "capabilities": list_country_route_policies_with_capabilities(db),
+    }
 
 
 @router.put("/admin/country-route-policies/{country_key}")
