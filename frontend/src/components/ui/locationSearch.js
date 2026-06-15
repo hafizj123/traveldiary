@@ -115,6 +115,27 @@ function normalizeChinaCityName(value) {
     .trim()
 }
 
+function normalizeJapanAreaName(value) {
+  return (value || '')
+    .replace(/\s+prefecture\s*$/i, ' Prefecture')
+    .replace(/\s+to\s*$/i, '')
+    .replace(/\s+fu\s*$/i, '')
+    .replace(/\s+do\s*$/i, '')
+    .trim()
+}
+
+const JAPAN_REGION_OPTIONS = [
+  { label: 'Hokkaido', city: 'Hokkaido', country: 'Japan', subtitle: 'Japan region' },
+  { label: 'Tohoku', city: 'Tohoku', country: 'Japan', subtitle: 'Aomori, Iwate, Miyagi, Akita, Yamagata, Fukushima' },
+  { label: 'Kanto', city: 'Kanto', country: 'Japan', subtitle: 'Tokyo, Kanagawa, Chiba, Saitama, Ibaraki, Tochigi, Gunma' },
+  { label: 'Chubu', city: 'Chubu', country: 'Japan', subtitle: 'Niigata, Toyama, Ishikawa, Fukui, Yamanashi, Nagano, Gifu, Shizuoka, Aichi' },
+  { label: 'Kansai', city: 'Kansai', country: 'Japan', subtitle: 'Osaka, Kyoto, Hyogo, Nara, Shiga, Wakayama, Mie' },
+  { label: 'Chugoku', city: 'Chugoku', country: 'Japan', subtitle: 'Tottori, Shimane, Okayama, Hiroshima, Yamaguchi' },
+  { label: 'Shikoku', city: 'Shikoku', country: 'Japan', subtitle: 'Tokushima, Kagawa, Ehime, Kochi' },
+  { label: 'Kyushu', city: 'Kyushu', country: 'Japan', subtitle: 'Fukuoka, Saga, Nagasaki, Kumamoto, Oita, Miyazaki, Kagoshima' },
+  { label: 'Okinawa', city: 'Okinawa', country: 'Japan', subtitle: 'Japan region' },
+]
+
 function isChinaCityLevelResult(result) {
   const type = (result.result_type || '').toLowerCase()
   const addresstype = (result.addresstype || '').toLowerCase()
@@ -145,6 +166,46 @@ function isChinaCityLevelResult(result) {
   }
 
   const allowedTypes = new Set(['city', 'municipality'])
+  if (allowedTypes.has(type) || allowedTypes.has(addresstype)) {
+    return true
+  }
+
+  return category === 'boundary' || category === 'administrative' || (placeRank > 0 && placeRank <= 16)
+}
+
+function isJapanRailAreaResult(result) {
+  const country = (result.country || '').trim().toLowerCase()
+  if (country !== 'japan') {
+    return false
+  }
+
+  const type = (result.result_type || '').toLowerCase()
+  const addresstype = (result.addresstype || '').toLowerCase()
+  const category = (result.category || '').toLowerCase()
+  const placeRank = Number(result.place_rank || 0)
+
+  const blockedTypes = new Set([
+    'district',
+    'suburb',
+    'quarter',
+    'neighbourhood',
+    'neighborhood',
+    'village',
+    'hamlet',
+    'station',
+  ])
+  if (blockedTypes.has(type) || blockedTypes.has(addresstype)) {
+    return false
+  }
+
+  const allowedTypes = new Set([
+    'state',
+    'province',
+    'county',
+    'city',
+    'municipality',
+    'administrative',
+  ])
   if (allowedTypes.has(type) || allowedTypes.has(addresstype)) {
     return true
   }
@@ -201,21 +262,49 @@ export async function searchCities(text, country) {
   const query = text.trim()
   if (!query) return []
   const normalizedQuery = normalizeChinaCityName(query).toLowerCase()
+  const normalizedCountry = country?.trim().toLowerCase()
+
+  if (normalizedCountry === 'japan') {
+    const normalizedText = query.toLowerCase()
+    const regionMatches = JAPAN_REGION_OPTIONS
+      .filter((item) => item.label.toLowerCase().includes(normalizedText) || item.subtitle.toLowerCase().includes(normalizedText))
+      .map((item) => ({
+        id: `japan-region-${item.label.toLowerCase()}`,
+        label: item.label,
+        subtitle: item.subtitle,
+        city: item.city,
+        country: item.country,
+        latitude: 0,
+        longitude: 0,
+        result_kind: 'location',
+      }))
+    if (regionMatches.length > 0) {
+      return regionMatches
+    }
+  }
 
   const fullQuery = country ? `${query}, ${country}` : query
-  const results = await searchPlaceResults(fullQuery, {
-    type: 'city',
-    nominatimQuery: `place=city ${fullQuery}`,
-  })
+  const results = await searchPlaceResults(fullQuery, normalizedCountry === 'japan'
+    ? {
+        nominatimQuery: fullQuery,
+      }
+    : {
+        type: 'city',
+        nominatimQuery: `place=city ${fullQuery}`,
+      })
 
-  const scopedResults = country?.trim().toLowerCase() === 'china'
+  const scopedResults = normalizedCountry === 'china'
     ? results.filter((result) => (result.country || '').trim().toLowerCase() === 'china' && isChinaCityLevelResult(result))
+    : normalizedCountry === 'japan'
+      ? results.filter((result) => isJapanRailAreaResult(result))
     : results
 
   const unique = new Map()
   scopedResults.forEach((result) => {
-    const city = country?.trim().toLowerCase() === 'china'
+    const city = normalizedCountry === 'china'
       ? normalizeChinaCityName(result.place_name || result.city)
+      : normalizedCountry === 'japan'
+        ? normalizeJapanAreaName(result.place_name || result.city)
       : (result.city || result.place_name)
     if (!city) return
     const key = `${city}|${result.country}`
@@ -234,7 +323,7 @@ export async function searchCities(text, country) {
   })
 
   const items = Array.from(unique.values())
-  if (country?.trim().toLowerCase() !== 'china') {
+  if (normalizedCountry !== 'china') {
     return items
   }
 

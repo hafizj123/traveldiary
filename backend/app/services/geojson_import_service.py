@@ -58,6 +58,85 @@ LARGE_RAIL_COUNTRY_KEYS = {
     "india",
 }
 
+JAPAN_REGION_PREFECTURES: dict[str, list[str]] = {
+    "hokkaido": ["Hokkaido"],
+    "tohoku": ["Aomori Prefecture", "Iwate Prefecture", "Miyagi Prefecture", "Akita Prefecture", "Yamagata Prefecture", "Fukushima Prefecture"],
+    "kanto": ["Tokyo Metropolis", "Kanagawa Prefecture", "Chiba Prefecture", "Saitama Prefecture", "Ibaraki Prefecture", "Tochigi Prefecture", "Gunma Prefecture"],
+    "chubu": ["Niigata Prefecture", "Toyama Prefecture", "Ishikawa Prefecture", "Fukui Prefecture", "Yamanashi Prefecture", "Nagano Prefecture", "Gifu Prefecture", "Shizuoka Prefecture", "Aichi Prefecture"],
+    "kansai": ["Osaka Prefecture", "Kyoto Prefecture", "Hyogo Prefecture", "Nara Prefecture", "Shiga Prefecture", "Wakayama Prefecture", "Mie Prefecture"],
+    "chugoku": ["Tottori Prefecture", "Shimane Prefecture", "Okayama Prefecture", "Hiroshima Prefecture", "Yamaguchi Prefecture"],
+    "shikoku": ["Tokushima Prefecture", "Kagawa Prefecture", "Ehime Prefecture", "Kochi Prefecture"],
+    "kyushu": ["Fukuoka Prefecture", "Saga Prefecture", "Nagasaki Prefecture", "Kumamoto Prefecture", "Oita Prefecture", "Miyazaki Prefecture", "Kagoshima Prefecture"],
+    "okinawa": ["Okinawa Prefecture"],
+}
+JAPAN_REGION_ALIASES = {
+    "hokkaido region": "hokkaido",
+    "tohoku region": "tohoku",
+    "kanto region": "kanto",
+    "chubu region": "chubu",
+    "kansai region": "kansai",
+    "kinki": "kansai",
+    "kinki region": "kansai",
+    "chugoku region": "chugoku",
+    "shikoku region": "shikoku",
+    "kyushu region": "kyushu",
+    "kyushu okinawa": "kyushu",
+    "kyushu region": "kyushu",
+    "okinawa region": "okinawa",
+}
+JAPAN_AREA_NAME_ALIASES: dict[str, list[str]] = {
+    "Hokkaido": ["Hokkaido", "Hokkaido-do", "北海道"],
+    "Aomori Prefecture": ["Aomori Prefecture", "Aomori", "Aomori-ken"],
+    "Iwate Prefecture": ["Iwate Prefecture", "Iwate", "Iwate-ken"],
+    "Miyagi Prefecture": ["Miyagi Prefecture", "Miyagi", "Miyagi-ken"],
+    "Akita Prefecture": ["Akita Prefecture", "Akita", "Akita-ken"],
+    "Yamagata Prefecture": ["Yamagata Prefecture", "Yamagata", "Yamagata-ken"],
+    "Fukushima Prefecture": ["Fukushima Prefecture", "Fukushima", "Fukushima-ken"],
+    "Tokyo Metropolis": ["Tokyo Metropolis", "Tokyo", "Tokyo-to"],
+    "Kanagawa Prefecture": ["Kanagawa Prefecture", "Kanagawa", "Kanagawa-ken"],
+    "Chiba Prefecture": ["Chiba Prefecture", "Chiba", "Chiba-ken"],
+    "Saitama Prefecture": ["Saitama Prefecture", "Saitama", "Saitama-ken"],
+    "Ibaraki Prefecture": ["Ibaraki Prefecture", "Ibaraki", "Ibaraki-ken"],
+    "Tochigi Prefecture": ["Tochigi Prefecture", "Tochigi", "Tochigi-ken"],
+    "Gunma Prefecture": ["Gunma Prefecture", "Gunma", "Gunma-ken"],
+    "Niigata Prefecture": ["Niigata Prefecture", "Niigata", "Niigata-ken"],
+    "Toyama Prefecture": ["Toyama Prefecture", "Toyama", "Toyama-ken"],
+    "Ishikawa Prefecture": ["Ishikawa Prefecture", "Ishikawa", "Ishikawa-ken"],
+    "Fukui Prefecture": ["Fukui Prefecture", "Fukui", "Fukui-ken"],
+    "Yamanashi Prefecture": ["Yamanashi Prefecture", "Yamanashi", "Yamanashi-ken"],
+    "Nagano Prefecture": ["Nagano Prefecture", "Nagano", "Nagano-ken"],
+    "Gifu Prefecture": ["Gifu Prefecture", "Gifu", "Gifu-ken"],
+    "Shizuoka Prefecture": ["Shizuoka Prefecture", "Shizuoka", "Shizuoka-ken"],
+    "Aichi Prefecture": ["Aichi Prefecture", "Aichi", "Aichi-ken"],
+    "Osaka Prefecture": ["Osaka Prefecture", "Osaka", "Osaka-fu"],
+    "Kyoto Prefecture": ["Kyoto Prefecture", "Kyoto", "Kyoto-fu"],
+    "Hyogo Prefecture": ["Hyogo Prefecture", "Hyogo", "Hyogo-ken"],
+    "Nara Prefecture": ["Nara Prefecture", "Nara", "Nara-ken"],
+    "Shiga Prefecture": ["Shiga Prefecture", "Shiga", "Shiga-ken"],
+    "Wakayama Prefecture": ["Wakayama Prefecture", "Wakayama", "Wakayama-ken"],
+    "Mie Prefecture": ["Mie Prefecture", "Mie", "Mie-ken"],
+    "Tottori Prefecture": ["Tottori Prefecture", "Tottori", "Tottori-ken"],
+    "Shimane Prefecture": ["Shimane Prefecture", "Shimane", "Shimane-ken"],
+    "Okayama Prefecture": ["Okayama Prefecture", "Okayama", "Okayama-ken"],
+    "Hiroshima Prefecture": ["Hiroshima Prefecture", "Hiroshima", "Hiroshima-ken"],
+    "Yamaguchi Prefecture": ["Yamaguchi Prefecture", "Yamaguchi", "Yamaguchi-ken"],
+    "Tokushima Prefecture": ["Tokushima Prefecture", "Tokushima", "Tokushima-ken"],
+    "Kagawa Prefecture": ["Kagawa Prefecture", "Kagawa", "Kagawa-ken"],
+    "Ehime Prefecture": ["Ehime Prefecture", "Ehime", "Ehime-ken"],
+    "Kochi Prefecture": ["Kochi Prefecture", "Kochi", "Kochi-ken"],
+    "Fukuoka Prefecture": ["Fukuoka Prefecture", "Fukuoka", "Fukuoka-ken"],
+    "Saga Prefecture": ["Saga Prefecture", "Saga", "Saga-ken"],
+    "Nagasaki Prefecture": ["Nagasaki Prefecture", "Nagasaki", "Nagasaki-ken"],
+    "Kumamoto Prefecture": ["Kumamoto Prefecture", "Kumamoto", "Kumamoto-ken"],
+    "Oita Prefecture": ["Oita Prefecture", "Oita", "Oita-ken"],
+    "Miyazaki Prefecture": ["Miyazaki Prefecture", "Miyazaki", "Miyazaki-ken"],
+    "Kagoshima Prefecture": ["Kagoshima Prefecture", "Kagoshima", "Kagoshima-ken"],
+    "Okinawa Prefecture": ["Okinawa Prefecture", "Okinawa", "Okinawa-ken"],
+}
+JAPAN_AREA_BBOXES: dict[str, tuple[float, float, float, float]] = {
+    "Hokkaido": (41.2, 139.2, 45.9, 145.9),
+}
+
 AIRPORT_QUERY_VARIANTS = (
     (
         "ISO3166-1 + admin_level=2",
@@ -190,6 +269,26 @@ def _country_key(country_name: str) -> str:
     return " ".join((country_name or "").strip().lower().split())
 
 
+def _japan_region_key(area_name: Optional[str]) -> str:
+    normalized = " ".join((area_name or "").strip().lower().split())
+    return JAPAN_REGION_ALIASES.get(normalized, normalized)
+
+
+def _japan_region_prefectures(area_name: Optional[str]) -> Optional[list[str]]:
+    return JAPAN_REGION_PREFECTURES.get(_japan_region_key(area_name))
+
+
+def _area_name_variants(area_name: str) -> list[str]:
+    aliases = JAPAN_AREA_NAME_ALIASES.get(area_name)
+    if aliases:
+        return aliases
+    return [area_name]
+
+
+def _area_bbox(area_name: str) -> Optional[tuple[float, float, float, float]]:
+    return JAPAN_AREA_BBOXES.get(area_name)
+
+
 def _rail_import_needs_subdivision(country_name: str) -> bool:
     return _country_key(country_name) in LARGE_RAIL_COUNTRY_KEYS
 
@@ -239,9 +338,20 @@ def _task_log_path(task_id: str, dataset_key: str) -> Path:
 def _is_process_running(pid: Optional[int]) -> bool:
     if not pid or pid <= 0:
         return False
+    if os.name == "nt":
+        return False
     try:
         os.kill(pid, 0)
     except OSError:
+        return False
+    return True
+
+
+def _use_subprocess_worker() -> bool:
+    if os.name == "nt":
+        return False
+    configured = str(os.environ.get("GEOJSON_IMPORT_USE_SUBPROCESS", "")).strip().lower()
+    if configured in {"0", "false", "no", "off"}:
         return False
     return True
 
@@ -310,7 +420,7 @@ def _build_airport_dataset_metadata(country_name: str, dataset_key: str) -> dict
 
 
 def _line_query(area_name: str) -> str:
-    area_expr = _overpass_area_expression(area_name)
+    area_expr = _overpass_area_expression(_area_name_variants(area_name))
     return f"""[out:json][timeout:600];
 
 {area_expr}
@@ -343,7 +453,7 @@ out skel qt;
 
 
 def _station_query(area_name: str) -> str:
-    area_expr = _overpass_area_expression(area_name)
+    area_expr = _overpass_area_expression(_area_name_variants(area_name))
     return f"""[out:json][timeout:600];
 
 {area_expr}
@@ -380,23 +490,95 @@ out center tags;
 """
 
 
+def _line_bbox_query(south: float, west: float, north: float, east: float) -> str:
+    return f"""[out:json][timeout:600];
+
+(
+  way({south},{west},{north},{east})["railway"~"rail|subway|light_rail|monorail|narrow_gauge"];
+  relation({south},{west},{north},{east})["type"="route"]["route"~"train|railway|subway|light_rail|monorail"];
+
+  node({south},{west},{north},{east})["railway"~"station|halt|subway_entrance"];
+  way({south},{west},{north},{east})["railway"~"station|halt|platform"];
+  relation({south},{west},{north},{east})["railway"~"station|halt|platform"];
+
+  node({south},{west},{north},{east})["public_transport"~"station|platform|stop_position"]
+      ["bus"!="yes"]
+      ["ferry"!="yes"]
+      ["aerialway"!="yes"];
+
+  way({south},{west},{north},{east})["public_transport"~"station|platform"]
+      ["bus"!="yes"]
+      ["ferry"!="yes"]
+      ["aerialway"!="yes"];
+);
+
+out body;
+>;
+out skel qt;
+"""
+
+
+def _station_bbox_query(south: float, west: float, north: float, east: float) -> str:
+    return f"""[out:json][timeout:600];
+
+(
+  node({south},{west},{north},{east})["public_transport"~"station|platform|stop_position"];
+  way({south},{west},{north},{east})["public_transport"~"station|platform|stop_position"];
+  relation({south},{west},{north},{east})["public_transport"~"station|platform|stop_position"];
+
+  node({south},{west},{north},{east})["railway"~"station|halt|tram_stop|subway_entrance"];
+  way({south},{west},{north},{east})["railway"~"station|halt|platform|tram_stop"];
+  relation({south},{west},{north},{east})["railway"~"station|halt|platform"];
+
+  node({south},{west},{north},{east})["highway"="bus_stop"];
+  way({south},{west},{north},{east})["highway"="bus_stop"];
+
+  node({south},{west},{north},{east})["amenity"="bus_station"];
+  way({south},{west},{north},{east})["amenity"="bus_station"];
+  relation({south},{west},{north},{east})["amenity"="bus_station"];
+
+  node({south},{west},{north},{east})["amenity"="ferry_terminal"];
+  way({south},{west},{north},{east})["amenity"="ferry_terminal"];
+  relation({south},{west},{north},{east})["amenity"="ferry_terminal"];
+
+  node({south},{west},{north},{east})["aeroway"~"terminal|station"];
+  way({south},{west},{north},{east})["aeroway"~"terminal|station"];
+  relation({south},{west},{north},{east})["aeroway"~"terminal|station"];
+
+  node({south},{west},{north},{east})["amenity"="taxi"];
+  way({south},{west},{north},{east})["amenity"="taxi"];
+);
+
+out center tags;
+"""
+
+
 def _escape_overpass_value(value: str) -> str:
     return (value or "").replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _overpass_area_expression(country_name: str) -> str:
-    escaped = _escape_overpass_value(country_name.strip())
+def _overpass_area_expression(area_names: str | list[str]) -> str:
+    names = [area_names] if isinstance(area_names, str) else list(area_names or [])
+    search_blocks: list[str] = []
+    for area_name in names:
+        escaped = _escape_overpass_value(area_name.strip())
+        if not escaped:
+            continue
+        search_blocks.extend([
+            f'  relation["name"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  relation["name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  relation["official_name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  relation["short_name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  relation["int_name"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  way["name"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  way["name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  way["official_name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  way["short_name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+            f'  way["int_name"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];',
+        ])
+    search_body = "\n".join(search_blocks)
     return f"""(
-  relation["name"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  relation["name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  relation["official_name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  relation["short_name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  relation["int_name"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  way["name"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  way["name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  way["official_name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  way["short_name:en"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
-  way["int_name"="{escaped}"]["boundary"="administrative"]["admin_level"~"2|3|4|5|6"];
+{search_body}
 );
 map_to_area -> .searchArea;"""
 
@@ -537,6 +719,26 @@ def _overpass_stations_to_geojson(payload: dict) -> dict:
     return {"type": "FeatureCollection", "features": features}
 
 
+def _merge_geojson_feature_collections(collections: list[dict]) -> dict:
+    merged_features: list[dict] = []
+    seen_ids: set[str] = set()
+    for collection in collections:
+        for feature in collection.get("features") or []:
+            props = feature.get("properties") or {}
+            feature_id = str(props.get("@id") or "")
+            if feature_id and feature_id in seen_ids:
+                continue
+            if feature_id:
+                seen_ids.add(feature_id)
+            merged_features.append(feature)
+    return {"type": "FeatureCollection", "features": merged_features}
+
+
+def _feature_count(payload: dict) -> int:
+    features = payload.get("features") if isinstance(payload, dict) else None
+    return len(features) if isinstance(features, list) else 0
+
+
 def _preferred_airport_name(tags: dict) -> str:
     for key in ("name:en", "int_name", "official_name:en", "name", "iata", "icao"):
         value = str(tags.get(key) or "").strip()
@@ -624,6 +826,7 @@ class _GeoJsonImportTaskManager:
         tasks = payload.get("tasks") if isinstance(payload, dict) else []
         self._tasks = tasks if isinstance(tasks, list) else []
         self._active_task_id = None
+        use_subprocess_worker = _use_subprocess_worker()
         for task in self._tasks:
             if str(task.get("id") or "") == active_worker_task_id and task.get("status") in {"queued", "running"}:
                 self._active_task_id = task.get("id")
@@ -636,6 +839,9 @@ class _GeoJsonImportTaskManager:
                 task["progress_percent"] = max(int(task.get("progress_percent") or 0), 1)
                 continue
             if task.get("status") == "running":
+                if not use_subprocess_worker:
+                    self._active_task_id = task.get("id")
+                    continue
                 worker_pid = int(task.get("worker_pid") or 0)
                 if _is_process_running(worker_pid):
                     self._active_task_id = task.get("id")
@@ -725,24 +931,50 @@ class _GeoJsonImportTaskManager:
             self._persist()
 
         try:
-            worker_pid, log_path = self._launch_worker_process(task)
-            task.update({
-                "status": "running",
-                "stage": "Worker process started",
-                "started_at": _utc_now_iso(),
-                "progress_percent": 1,
-                "worker_pid": worker_pid,
-                "log_file": str(log_path),
-            })
-            self._update_task(
-                task["id"],
-                status=task["status"],
-                stage=task["stage"],
-                started_at=task["started_at"],
-                progress_percent=task["progress_percent"],
-                worker_pid=task["worker_pid"],
-                log_file=task["log_file"],
-            )
+            if _use_subprocess_worker():
+                worker_pid, log_path = self._launch_worker_process(task)
+                task.update({
+                    "status": "running",
+                    "stage": "Worker process started",
+                    "started_at": _utc_now_iso(),
+                    "progress_percent": 1,
+                    "worker_pid": worker_pid,
+                    "log_file": str(log_path),
+                })
+                self._update_task(
+                    task["id"],
+                    status=task["status"],
+                    stage=task["stage"],
+                    started_at=task["started_at"],
+                    progress_percent=task["progress_percent"],
+                    worker_pid=task["worker_pid"],
+                    log_file=task["log_file"],
+                )
+            else:
+                self._update_task(
+                    task["id"],
+                    status="running",
+                    stage="Worker thread started",
+                    started_at=_utc_now_iso(),
+                    progress_percent=1,
+                    worker_pid=None,
+                    log_file=None,
+                )
+                task.update({
+                    "status": "running",
+                    "stage": "Worker thread started",
+                    "started_at": task.get("started_at") or _utc_now_iso(),
+                    "progress_percent": 1,
+                    "worker_pid": None,
+                    "log_file": None,
+                })
+                worker = threading.Thread(
+                    target=self._run_task_local_thread,
+                    args=(task["id"],),
+                    name=f"geojson-{normalized_import_type}-import-{dataset_key}",
+                    daemon=True,
+                )
+                worker.start()
         except Exception as exc:
             logger.exception("geojson_import: failed to launch worker for %s", dataset_key)
             task.update({
@@ -857,9 +1089,25 @@ class _GeoJsonImportTaskManager:
             raise RuntimeError(f"{context} returned no features. Try a different boundary name or city search result.")
 
     def _run_task(self, task_id: str) -> None:
+        if _use_subprocess_worker():
+            with self._lock:
+                self._load()
+                task = next((row for row in self._tasks if row.get("id") == task_id), None)
+        else:
+            with self._lock:
+                task = next((row for row in self._tasks if row.get("id") == task_id), None)
+        if not task:
+            raise ValueError("GeoJSON import task not found.")
+        if task.get("status") not in {"queued", "running"}:
+            raise ValueError("GeoJSON import task is not runnable.")
+        if (task.get("import_type") or "rail") == "airport":
+            self._run_airport_task(task_id, task)
+            return
+        self._run_rail_task(task_id, task)
+
+    def _run_task_local_thread(self, task_id: str) -> None:
         with self._lock:
-            self._load()
-        task = next((row for row in self._tasks if row.get("id") == task_id), None)
+            task = next((row for row in self._tasks if row.get("id") == task_id), None)
         if not task:
             raise ValueError("GeoJSON import task not found.")
         if task.get("status") not in {"queued", "running"}:
@@ -893,6 +1141,11 @@ class _GeoJsonImportTaskManager:
         dataset_key = task["dataset_key"]
         area_name = city_name or country_name
         task_label = f"{country_name} / {city_name}" if city_name else country_name
+        japan_region_prefectures = (
+            _japan_region_prefectures(city_name)
+            if _country_key(country_name) == "japan" and city_name
+            else None
+        )
 
         self._update_task(
             task_id,
@@ -905,23 +1158,107 @@ class _GeoJsonImportTaskManager:
         try:
             self._current_output_country_name = country_name
             metadata_before = load_imported_dataset_metadata().get(dataset_key)
-            line_payload = self._execute_overpass_query(
-                _line_query(area_name),
-                context=f"{task_label} rail query",
-                on_retry_status=lambda stage: self._update_task(task_id, stage=stage, progress_percent=10),
-            )
-            self._update_task(task_id, stage="Converting rail network data", progress_percent=40)
-            line_geojson = _overpass_lines_to_geojson(line_payload)
+            if japan_region_prefectures:
+                line_geojson_parts: list[dict] = []
+                line_prefecture_counts: list[tuple[str, int]] = []
+                empty_line_prefectures: list[str] = []
+                total_prefectures = len(japan_region_prefectures)
+                for index, prefecture_name in enumerate(japan_region_prefectures, start=1):
+                    progress = min(10 + int((index - 1) * 25 / max(total_prefectures, 1)), 35)
+                    self._update_task(
+                        task_id,
+                        stage=f"Fetching rail network data ({index}/{total_prefectures}: {prefecture_name})",
+                        progress_percent=progress,
+                    )
+                    line_payload = self._execute_overpass_query(
+                        _line_query(prefecture_name),
+                        context=f"{task_label} rail query ({prefecture_name})",
+                        on_retry_status=lambda stage, progress=progress: self._update_task(task_id, stage=stage, progress_percent=progress),
+                    )
+                    prefecture_geojson = _overpass_lines_to_geojson(line_payload)
+                    prefecture_count = _feature_count(prefecture_geojson)
+                    if prefecture_count == 0:
+                        bbox = _area_bbox(prefecture_name)
+                        if bbox:
+                            logger.info("geojson_import: %s rail query returned 0 features, retrying bbox fallback", prefecture_name)
+                            line_payload = self._execute_overpass_query(
+                                _line_bbox_query(*bbox),
+                                context=f"{task_label} rail bbox query ({prefecture_name})",
+                                on_retry_status=lambda stage, progress=progress: self._update_task(task_id, stage=stage, progress_percent=progress),
+                            )
+                            prefecture_geojson = _overpass_lines_to_geojson(line_payload)
+                            prefecture_count = _feature_count(prefecture_geojson)
+                    logger.info("geojson_import: %s rail features=%s", prefecture_name, prefecture_count)
+                    line_prefecture_counts.append((prefecture_name, prefecture_count))
+                    if prefecture_count == 0:
+                        empty_line_prefectures.append(prefecture_name)
+                    line_geojson_parts.append(prefecture_geojson)
+                self._update_task(task_id, stage="Merging regional rail network data", progress_percent=40)
+                line_geojson = _merge_geojson_feature_collections(line_geojson_parts)
+                if empty_line_prefectures:
+                    raise RuntimeError(
+                        f"{task_label} rail export returned no features for: {', '.join(empty_line_prefectures)}"
+                    )
+            else:
+                line_payload = self._execute_overpass_query(
+                    _line_query(area_name),
+                    context=f"{task_label} rail query",
+                    on_retry_status=lambda stage: self._update_task(task_id, stage=stage, progress_percent=10),
+                )
+                self._update_task(task_id, stage="Converting rail network data", progress_percent=40)
+                line_geojson = _overpass_lines_to_geojson(line_payload)
             self._ensure_non_empty_geojson(line_geojson, context=f"{task_label} rail export")
 
-            self._update_task(task_id, stage="Fetching station and transport stop data", progress_percent=60)
-            station_payload = self._execute_overpass_query(
-                _station_query(area_name),
-                context=f"{task_label} station query",
-                on_retry_status=lambda stage: self._update_task(task_id, stage=stage, progress_percent=60),
-            )
-            self._update_task(task_id, stage="Converting station and transport stop data", progress_percent=85)
-            station_geojson = _overpass_stations_to_geojson(station_payload)
+            if japan_region_prefectures:
+                station_geojson_parts: list[dict] = []
+                station_prefecture_counts: list[tuple[str, int]] = []
+                empty_station_prefectures: list[str] = []
+                total_prefectures = len(japan_region_prefectures)
+                for index, prefecture_name in enumerate(japan_region_prefectures, start=1):
+                    progress = min(60 + int((index - 1) * 20 / max(total_prefectures, 1)), 80)
+                    self._update_task(
+                        task_id,
+                        stage=f"Fetching station and transport stop data ({index}/{total_prefectures}: {prefecture_name})",
+                        progress_percent=progress,
+                    )
+                    station_payload = self._execute_overpass_query(
+                        _station_query(prefecture_name),
+                        context=f"{task_label} station query ({prefecture_name})",
+                        on_retry_status=lambda stage, progress=progress: self._update_task(task_id, stage=stage, progress_percent=progress),
+                    )
+                    prefecture_geojson = _overpass_stations_to_geojson(station_payload)
+                    prefecture_count = _feature_count(prefecture_geojson)
+                    if prefecture_count == 0:
+                        bbox = _area_bbox(prefecture_name)
+                        if bbox:
+                            logger.info("geojson_import: %s station query returned 0 features, retrying bbox fallback", prefecture_name)
+                            station_payload = self._execute_overpass_query(
+                                _station_bbox_query(*bbox),
+                                context=f"{task_label} station bbox query ({prefecture_name})",
+                                on_retry_status=lambda stage, progress=progress: self._update_task(task_id, stage=stage, progress_percent=progress),
+                            )
+                            prefecture_geojson = _overpass_stations_to_geojson(station_payload)
+                            prefecture_count = _feature_count(prefecture_geojson)
+                    logger.info("geojson_import: %s station features=%s", prefecture_name, prefecture_count)
+                    station_prefecture_counts.append((prefecture_name, prefecture_count))
+                    if prefecture_count == 0:
+                        empty_station_prefectures.append(prefecture_name)
+                    station_geojson_parts.append(prefecture_geojson)
+                self._update_task(task_id, stage="Merging regional station and transport stop data", progress_percent=85)
+                station_geojson = _merge_geojson_feature_collections(station_geojson_parts)
+                if empty_station_prefectures:
+                    raise RuntimeError(
+                        f"{task_label} station export returned no features for: {', '.join(empty_station_prefectures)}"
+                    )
+            else:
+                self._update_task(task_id, stage="Fetching station and transport stop data", progress_percent=60)
+                station_payload = self._execute_overpass_query(
+                    _station_query(area_name),
+                    context=f"{task_label} station query",
+                    on_retry_status=lambda stage: self._update_task(task_id, stage=stage, progress_percent=60),
+                )
+                self._update_task(task_id, stage="Converting station and transport stop data", progress_percent=85)
+                station_geojson = _overpass_stations_to_geojson(station_payload)
             self._ensure_non_empty_geojson(station_geojson, context=f"{task_label} station export")
 
             self._update_task(task_id, stage="Saving GeoJSON files", progress_percent=92)

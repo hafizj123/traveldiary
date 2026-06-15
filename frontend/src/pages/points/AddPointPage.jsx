@@ -413,11 +413,14 @@ export default function AddPointPage() {
   const onDrop = useCallback(async (files) => {
     const file = files[0]
     if (!file) return
-    setPreview(URL.createObjectURL(file))
+    const localPreviewUrl = URL.createObjectURL(file)
+    setPreview(localPreviewUrl)
     setUploading(true)
     try {
       const res = await uploadApi.image(file)
       uploadedUrlRef.current = res.url
+      setPreview(res.url)
+      URL.revokeObjectURL(localPreviewUrl)
       setForm((current) => ({
         ...current,
         image_url: res.url,

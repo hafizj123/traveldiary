@@ -377,7 +377,7 @@ export default function GeoJsonImportPage() {
                 ) : null}
                 {!isAirportImport && requiresRailSubdivision ? (
                   <SearchableLocationInput
-                    label={isChinaSelected || isJapanSelected ? 'City name' : 'City or region name'}
+                    label={isChinaSelected ? 'City name' : isJapanSelected ? 'Region or city name' : 'City or region name'}
                     value={cityName}
                     onChange={(value) => {
                       setCityName(isChinaSelected ? normalizeChinaCityName(value) : value)
@@ -390,7 +390,7 @@ export default function GeoJsonImportPage() {
                     searchFn={(text) => searchCities(text, countryName)}
                     required
                     minChars={1}
-                    placeholder={isChinaSelected ? 'Search China municipality or city' : isJapanSelected ? 'Search city in Japan' : `Search city or region in ${countryName}`}
+                    placeholder={isChinaSelected ? 'Search China municipality or city' : isJapanSelected ? 'Search Japan region or city' : `Search city or region in ${countryName}`}
                     disabled={submitting || !!activeTask}
                   />
                 ) : null}
@@ -403,11 +403,11 @@ export default function GeoJsonImportPage() {
                   {isChinaSelected
                     ? 'For China imports, choose China first, then pick a municipality or city-level boundary from the dropdown.'
                     : isJapanSelected
-                      ? 'For Japan rail imports, choose a city from the dropdown instead of importing the whole country.'
+                      ? 'For Japan rail imports, choose a region like Kanto or Kansai, or a city, from the dropdown instead of importing the whole country.'
                       : `For ${countryName || 'large-country'} rail imports, choose a smaller city or region from the dropdown instead of importing the whole country.`}
                 </p> : null}
                 {!isAirportImport && requiresRailSubdivision && cityName.trim() && !cityConfirmed ? (
-                  <p className="text-xs text-amber-600">{isChinaSelected || isJapanSelected ? 'Pick a city from the dropdown before starting the import.' : 'Pick a city or region from the dropdown before starting the import.'}</p>
+                  <p className="text-xs text-amber-600">{isChinaSelected ? 'Pick a city from the dropdown before starting the import.' : isJapanSelected ? 'Pick a region or city from the dropdown before starting the import.' : 'Pick a city or region from the dropdown before starting the import.'}</p>
                 ) : null}
                 {!isAirportImport ? (
                   <p className="text-xs text-amber-600">
